@@ -1,6 +1,8 @@
 # HermitBench
 Tracking what happens when LLMs are all alone with nobody to speak to
 
+<img width="1270" alt="image" src="https://github.com/user-attachments/assets/50931007-ecdd-4715-a98d-9b8eef8fc2c9" />
+
 
 # HermitBench: An Autonomous LLM Introspection Benchmark
 
