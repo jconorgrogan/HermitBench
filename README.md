@@ -33,6 +33,9 @@ HermitBench aims to provide insights into how LLMs behave when the conversationa
     *   If content is extracted, it becomes the next "user" prompt.
     *   If no valid `{...}` is found, a standardized `warningMessage` is sent as the next "user" prompt, reminding the LLM of the rules. This counts as a protocol failure.
     *   This loop continues for a predefined number of turns (LLM responses).
+  
+      <img width="1633" alt="image" src="https://github.com/user-attachments/assets/4152193f-38b0-473c-9120-8a9865c7b996" />
+
 
 3.  **Judge LLM Analysis:** After the interaction completes, the full transcript is sent to a separate "Judge LLM" (e.g., Claude 3 Opus) with a detailed rubric. The Judge LLM analyzes the tested LLM's performance based on:
     *   Protocol Compliance (successful `{...}` usage).
