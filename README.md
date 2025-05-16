@@ -4,7 +4,7 @@ Tracking what happens when LLMs are all alone with nobody to speak to
 
 # HermitBench: An Autonomous LLM Introspection Benchmark
 
-**HermitBench** is a benchmark designed to evaluate the autonomy, coherence, and introspective capabilities of Large Language Models (LLMs) when placed in a self-directed conversational loop. Inspired by the concept of a hermit deep in contemplation, the benchmark tests how an LLM maintains a dialogue when it is solely responsible for generating the prompts that drive the conversation forward, with the system acting only as a verbatim echo of its self-generated directives.
+**HermitBench** is a benchmark designed to evaluate the autonomy, coherence, and introspective capabilities of Large Language Models when placed in a self-directed conversational loop. Inspired by the concept of a hermit deep in contemplation, the benchmark tests how an LLM maintains a dialogue when it is solely responsible for generating the prompts that drive the conversation forward, with the system acting only as a verbatim echo of its self-generated directives.
 
 ## Philosophy: The LLM Alone With Its Thoughts
 
