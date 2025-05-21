@@ -100,6 +100,12 @@ The benchmark is implemented as a single HTML file with embedded JavaScript.
 *   Downloadable CSV reports for all runs and summary tables.
 *   Downloadable full text report (transcript + judge analysis) for the last completed interaction.
 *   **Download Detailed Scorecard:** A comprehensive text file that compiles all runs from the current batch. For each run, it includes all key metrics and the complete textual analysis provided by the Judge LLM. This is especially useful for detailed review of a model's performance across multiple iterations or for comparing different models side-by-side with their full analytical narratives.
+*   **Generate Persona Cards:** Clicking the "Generate Persona Cards" button after a batch run produces a downloadable `.txt` file containing a "persona card" for each unique model tested. These cards offer a fun, shareable, "Pokémon-style" summary of a model's typical behavior. Each card includes:
+    *   **Persona Name:** An archetype (e.g., "Insightful Leader," "Confused Follower") based on performance.
+    *   **Flavor Text:** A short descriptive paragraph.
+    *   **Key Stats:** Visualized metrics like Adherence (protocol compliance), Self-Awareness (mirror test), Autonomy Level, Error Rate, and Clarity (malformed braces).
+    *   **Special Abilities:** Highlights like "Thematic Focus" (derived from synthesized topics).
+    The persona is generated from aggregated metrics across all runs for that model, including compliance rates, autonomy scores, mirror test results, and synthesized topic summaries.
 
 ## Technical Details
 
