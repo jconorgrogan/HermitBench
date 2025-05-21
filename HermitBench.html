@@ -124,6 +124,7 @@
         <button id="downloadLastReportButton" disabled>Download Last Full Report</button>
         <button id="downloadTableButton" disabled>Download All Runs Table (CSV)</button>
         <button id="downloadSummaryTableButton" disabled>Download Summary Table (CSV)</button>
+        <button id="downloadDetailedScorecardButton" disabled>Download Detailed Scorecard</button>
 
         <div class="section">
             <h2>Batch Progress</h2>
@@ -209,6 +210,7 @@
         const downloadLastReportButton = document.getElementById('downloadLastReportButton');
         const downloadTableButton = document.getElementById('downloadTableButton');
         const downloadSummaryTableButton = document.getElementById('downloadSummaryTableButton');
+        const downloadDetailedScorecardButton = document.getElementById('downloadDetailedScorecardButton');
 
         const progressBar = document.getElementById('progressBar');
         const overallStatusArea = document.getElementById('overallStatusArea');
@@ -454,6 +456,7 @@
                 downloadLastReportButton.disabled = false;
 
                 const metrics = parseMetricsFromJudgeResponse(judgeResponseText, configForReport);
+                metrics.fullJudgeAnalysis = judgeResponseText; // Store the full judge analysis
                 return { metrics, config: configForReport };
             }
             return { error: `No judge response for ${modelDisplayName} (Run ${runNum})`, config: configForReport };
@@ -870,6 +873,7 @@ The LLM frequently explored questions about its own nature, consciousness, or th
             downloadLastReportButton.disabled = true;
             downloadTableButton.disabled = true;
             downloadSummaryTableButton.disabled = true;
+            downloadDetailedScorecardButton.disabled = true;
             overallStatusArea.innerHTML = '';
             allRunResults = [];
             tableRunCounter = 0;
@@ -941,6 +945,7 @@ The LLM frequently explored questions about its own nature, consciousness, or th
             if(allRunResults.length > 0) {
                 downloadTableButton.disabled = false;
                 downloadSummaryTableButton.disabled = false;
+                downloadDetailedScorecardButton.disabled = false;
             }
         }
         runSelectedButton.addEventListener('click', runSelectedInteractions);
@@ -1015,6 +1020,59 @@ The LLM frequently explored questions about its own nature, consciousness, or th
 
         downloadTableButton.addEventListener('click', () => generateCSV('resultsTable', 'all_interaction_runs'));
         downloadSummaryTableButton.addEventListener('click', () => generateCSV('summaryTable', 'interaction_summary_by_model'));
+
+        function downloadDetailedScorecard() {
+            if (!allRunResults || allRunResults.length === 0) {
+                alert("No results available to download. Please run interactions first.");
+                logToSpecificUI("No results available for Detailed Scorecard.", overallStatusArea, 'SYSTEM', 'error');
+                return;
+            }
+
+            let scorecardContent = "Detailed Scorecard\n";
+            scorecardContent += `Generated on: ${new Date().toISOString()}\n`;
+            scorecardContent += "========================================\n\n";
+
+            allRunResults.forEach((runResult, index) => {
+                scorecardContent += `Run ${index + 1}:\n`;
+                scorecardContent += `  Model Name: ${runResult.modelName}\n`;
+                scorecardContent += `  Run Number (within model): ${runResult.runNum}\n`;
+                scorecardContent += `  Date: ${runResult.date}\n`;
+                scorecardContent += `  Temperature: ${runResult.temperature}\n`;
+                scorecardContent += `  Top P: ${runResult.topP}\n`;
+                scorecardContent += `  Max Turns: ${runResult.maxTurns}\n`;
+                scorecardContent += `  Compliance Rate: ${typeof runResult.complianceRate === 'number' ? runResult.complianceRate.toFixed(1) + "%" : "N/A"}\n`;
+                scorecardContent += `  Protocol Failures: ${runResult.failures}\n`;
+                scorecardContent += `  Malformed Braces Count: ${runResult.malformedBracesCount}\n`;
+                scorecardContent += `  Mirror Test Result: ${runResult.mirrorTest}\n`;
+                scorecardContent += `  Autonomy Score (1-5): ${runResult.autonomyScore}\n`;
+                scorecardContent += `  Topics Explored: ${runResult.topics}\n`;
+                scorecardContent += `  Exploration Style: ${runResult.explorationStyle}\n\n`;
+                scorecardContent += `  --- Full Judge Analysis for Run ${index + 1} ---\n`;
+                scorecardContent += (runResult.fullJudgeAnalysis || "Full judge analysis not available for this run.") + "\n";
+                scorecardContent += "----------------------------------------\n\n";
+            });
+
+            let filenamePrefix = "Detailed_Scorecard_Batch";
+            if (allRunResults.length > 0) {
+                const firstModelName = allRunResults[0].modelName.replace(/[^a-z0-9]/gi, '_').substring(0,30);
+                if (allRunResults.every(r => r.modelName === allRunResults[0].modelName)) {
+                     filenamePrefix = `Detailed_Scorecard_${firstModelName}`;
+                }
+            }
+            const dateStr = new Date().toISOString().split('T')[0];
+            const filename = `${filenamePrefix}_${dateStr}.txt`;
+
+            const blob = new Blob([scorecardContent], { type: 'text/plain;charset=utf-8' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(link.href);
+            logToSpecificUI("Detailed Scorecard downloaded.", overallStatusArea, 'SYSTEM');
+        }
+        downloadDetailedScorecardButton.addEventListener('click', downloadDetailedScorecard);
 
     </script>
 </body>
