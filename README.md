@@ -1,5 +1,4 @@
 
-<img width="417" alt="image" src="https://github.com/user-attachments/assets/0530ce87-4452-43ca-a4cf-4fc01ed3bdb9" />
 
 # HermitBench
 
@@ -16,6 +15,7 @@ HermitBench is an interactive tool for evaluating the autonomous capabilities of
 - **Integration with OpenRouter**: Access a wide range of models from different providers
 - **Direct Gemini Integration**: Optimized support for Google's Gemini models and image generation
 
+<img width="417" alt="image" src="https://github.com/user-attachments/assets/0530ce87-4452-43ca-a4cf-4fc01ed3bdb9" />
 ## How It Works
 HermitBench operates on a unique protocol:
 
