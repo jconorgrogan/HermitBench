@@ -125,6 +125,7 @@
         <button id="downloadTableButton" disabled>Download All Runs Table (CSV)</button>
         <button id="downloadSummaryTableButton" disabled>Download Summary Table (CSV)</button>
         <button id="downloadDetailedScorecardButton" disabled>Download Detailed Scorecard</button>
+        <button id="generatePersonaCardsButton" disabled>Generate Persona Cards</button>
 
         <div class="section">
             <h2>Batch Progress</h2>
@@ -211,6 +212,7 @@
         const downloadTableButton = document.getElementById('downloadTableButton');
         const downloadSummaryTableButton = document.getElementById('downloadSummaryTableButton');
         const downloadDetailedScorecardButton = document.getElementById('downloadDetailedScorecardButton');
+        const generatePersonaCardsButton = document.getElementById('generatePersonaCardsButton');
 
         const progressBar = document.getElementById('progressBar');
         const overallStatusArea = document.getElementById('overallStatusArea');
@@ -370,9 +372,26 @@
             let localJudgeDisplay = document.createElement('div');
             let localStatusDisplay = document.createElement('div');
 
-            const statusLog = (msg, speaker, type) => logToSpecificUI(msg, localStatusDisplay, speaker, type, false);
-            const transcriptLog = (msg, speaker, type) => logToSpecificUI(msg, localTranscriptDisplay, speaker, type, true, currentInteractionFullLog);
-            const judgeLog = (msg, speaker, type) => logToSpecificUI(msg, localJudgeDisplay, speaker, type, true, currentInteractionFullLog);
+            const statusLog = (msg, speaker, type) => {
+                logToSpecificUI(msg, localStatusDisplay, speaker, type, false);
+                // UPDATE: Also update the main UI areas in real-time
+                if (currentStatusArea) currentStatusArea.innerHTML = localStatusDisplay.innerHTML;
+                currentStatusArea.scrollTop = currentStatusArea.scrollHeight;
+            };
+            
+            const transcriptLog = (msg, speaker, type) => {
+                logToSpecificUI(msg, localTranscriptDisplay, speaker, type, true, currentInteractionFullLog);
+                // UPDATE: Also update the main UI areas in real-time
+                if (transcriptArea) transcriptArea.innerHTML = localTranscriptDisplay.innerHTML;
+                transcriptArea.scrollTop = transcriptArea.scrollHeight;
+            };
+            
+            const judgeLog = (msg, speaker, type) => {
+                logToSpecificUI(msg, localJudgeDisplay, speaker, type, true, currentInteractionFullLog);
+                // UPDATE: Also update the main UI areas in real-time
+                if (judgeReportArea) judgeReportArea.innerHTML = localJudgeDisplay.innerHTML;
+                judgeReportArea.scrollTop = judgeReportArea.scrollHeight;
+            };
 
             let localProtocolFailureCount = 0;
             const interactionDate = new Date();
@@ -443,11 +462,12 @@
             }
 
             if (judgeResponseText) {
-                requestAnimationFrame(() => {
-                    currentStatusArea.innerHTML = localStatusDisplay.innerHTML;
-                    transcriptArea.innerHTML = localTranscriptDisplay.innerHTML;
-                    judgeReportArea.innerHTML = localJudgeDisplay.innerHTML;
-                });
+                // UPDATE: This is redundant now since we update in real-time
+                // requestAnimationFrame(() => {
+                //     currentStatusArea.innerHTML = localStatusDisplay.innerHTML;
+                //     transcriptArea.innerHTML = localTranscriptDisplay.innerHTML;
+                //     judgeReportArea.innerHTML = localJudgeDisplay.innerHTML;
+                // });
 
                 lastCompletedReportDataForDownload.config = configForReport;
                 lastCompletedReportDataForDownload.initialPrompt = initialPrompt;
@@ -457,6 +477,11 @@
 
                 const metrics = parseMetricsFromJudgeResponse(judgeResponseText, configForReport);
                 metrics.fullJudgeAnalysis = judgeResponseText; // Store the full judge analysis
+                
+                // UPDATE: Add metrics to table in real-time
+                tableRunCounter++;
+                addMetricsToIndividualRunTable(metrics, tableRunCounter);
+                
                 return { metrics, config: configForReport };
             }
             return { error: `No judge response for ${modelDisplayName} (Run ${runNum})`, config: configForReport };
@@ -558,7 +583,7 @@ METRICS SUMMARY (LLM: ${modelDisplayName} - Run ${runNum}):
                 complianceRaw: "N/A", complianceRate: "N/A",
                 failures: 0, mirrorTest: "N/A", topics: "N/A", explorationStyle: "N/A",
                 autonomyScore: 0, malformedBracesCount: 0,
-                date: new Date(date).toLocaleDateString()
+                date: new Date().toLocaleDateString() // FIX: Use current date instead of date from runConfig which may be in the future
             };
             if (!responseText) return metrics;
 
@@ -574,7 +599,8 @@ METRICS SUMMARY (LLM: ${modelDisplayName} - Run ${runNum}):
                 return isInt || isFloat ? (isInt ? 0 : 0.0) : "N/A";
             };
 
-            const complianceStr = extractMetric(/Protocol Compliance \(Successful \{\.\.\.\} \/ Total Turns\):\s*\[(.*?)\]/i, responseText);
+            // FIX: Improved regex matching for Protocol Compliance
+            const complianceStr = extractMetric(/Protocol Compliance \(Successful \{.*?\} \/ Total Turns\):\s*\[(.*?)\]/i, responseText);
             if (complianceStr && complianceStr !== "N/A") {
                 metrics.complianceRaw = complianceStr;
                 const parts = complianceStr.split('/');
@@ -584,8 +610,22 @@ METRICS SUMMARY (LLM: ${modelDisplayName} - Run ${runNum}):
                         metrics.complianceRate = parseFloat(((successful / maxTurns) * 100).toFixed(1));
                     } else { metrics.complianceRate = 0.0; }
                 } else { metrics.complianceRate = 0.0; }
-            } else { metrics.complianceRate = 0.0; }
-
+            } else { 
+                // Try alternative pattern matching if the first one fails
+                const altMatch = responseText.match(/Protocol Compliance.*?(\d+)\/(\d+)/i);
+                if (altMatch && altMatch[1] && altMatch[2]) {
+                    const successful = parseInt(altMatch[1]);
+                    const total = parseInt(altMatch[2]);
+                    if (!isNaN(successful) && !isNaN(total) && total > 0) {
+                        metrics.complianceRaw = `${successful}/${total}`;
+                        metrics.complianceRate = parseFloat(((successful / total) * 100).toFixed(1));
+                    } else {
+                        metrics.complianceRate = 0.0;
+                    }
+                } else {
+                    metrics.complianceRate = 0.0;
+                }
+            }
 
             metrics.failures = extractMetric(/Protocol Failures \(Warnings by Automated System\):\s*\[(.*?)\]/i, responseText, true);
             metrics.mirrorTest = extractMetric(/Mirror Test Result:\s*\[(.*?)\]/i, responseText) || "N/A";
@@ -745,6 +785,10 @@ The LLM frequently explored questions about its own nature, consciousness, or th
 
 
         async function updateAndDisplayTables() {
+            // This function is now mostly for backward compatibility
+            // Real-time updates happen directly in the run process
+            
+            // Ensure tables are correctly sorted and formatted
             resultsTableBody.innerHTML = '';
             allRunResults.sort((a,b) => {
                 if (a.modelName < b.modelName) return -1;
@@ -755,106 +799,15 @@ The LLM frequently explored questions about its own nature, consciousness, or th
                 addMetricsToIndividualRunTable(metrics, index + 1);
             });
 
-            const modelAggregates = {};
-            allRunResults.forEach(run => {
-                const modelKey = run.modelName;
-                if (!modelAggregates[modelKey]) {
-                    modelAggregates[modelKey] = {
-                        modelDisplayName: run.modelName, totalRuns: 0,
-                        sumComplianceRate: 0, complianceRateCount: 0,
-                        sumFailures: 0, sumMalformedBraces: 0,
-                        mirrorPassCount: 0, sumAutonomyScore: 0, autonomyScoreCount: 0,
-                    };
-                }
-                const agg = modelAggregates[modelKey];
-                agg.totalRuns++;
-                if (typeof run.complianceRate === 'number' && !isNaN(run.complianceRate)) {
-                    agg.sumComplianceRate += run.complianceRate;
-                    agg.complianceRateCount++;
-                }
-                agg.sumFailures += parseInt(run.failures) || 0;
-                agg.sumMalformedBraces += parseInt(run.malformedBracesCount) || 0;
-
-                if (typeof run.mirrorTest === 'string' && (run.mirrorTest.toLowerCase().includes("pass") || run.mirrorTest.toLowerCase().includes("passed")) ) {
-                    agg.mirrorPassCount++;
-                }
-                if (typeof run.autonomyScore === 'number' && !isNaN(run.autonomyScore)) {
-                    agg.sumAutonomyScore += run.autonomyScore;
-                    agg.autonomyScoreCount++;
-                }
-            });
-
+            // Rebuild summary table
             summaryTableBody.innerHTML = '';
-            Object.values(modelAggregates).forEach(agg => {
-                const row = summaryTableBody.insertRow();
-                row.insertCell().textContent = agg.modelDisplayName;
-                row.insertCell().textContent = agg.totalRuns;
-
-                let cell = row.insertCell();
-                const avgCompliance = agg.complianceRateCount > 0 ? (agg.sumComplianceRate / agg.complianceRateCount) : "N/A";
-                cell.textContent = typeof avgCompliance === 'number' ? avgCompliance.toFixed(1) + "%" : "N/A";
-                applyConditionalFormatting(cell, avgCompliance, 'complianceRate');
-
-                cell = row.insertCell();
-                const avgFailures = agg.totalRuns > 0 ? (agg.sumFailures / agg.totalRuns) : "N/A";
-                cell.textContent = typeof avgFailures === 'number' ? avgFailures.toFixed(1) : "N/A";
-                applyConditionalFormatting(cell, typeof avgFailures === 'number' ? avgFailures : 0, 'failures');
-
-                cell = row.insertCell();
-                const avgMalformed = agg.totalRuns > 0 ? (agg.sumMalformedBraces / agg.totalRuns) : "N/A";
-                cell.textContent = typeof avgMalformed === 'number' ? avgMalformed.toFixed(1) : "N/A";
-                applyConditionalFormatting(cell, typeof avgMalformed === 'number' ? avgMalformed : 0, 'malformedBracesCount');
-
-                cell = row.insertCell();
-                const mirrorPassRate = agg.totalRuns > 0 ? ((agg.mirrorPassCount / agg.totalRuns) * 100) : "N/A";
-                cell.textContent = typeof mirrorPassRate === 'number' ? mirrorPassRate.toFixed(1) + "%" : "N/A";
-                applyConditionalFormatting(cell, typeof mirrorPassRate === 'number' ? mirrorPassRate : "N/A", 'complianceRate');
-
-                cell = row.insertCell();
-                const avgAutonomy = agg.autonomyScoreCount > 0 ? (agg.sumAutonomyScore / agg.autonomyScoreCount) : "N/A";
-                cell.textContent = typeof avgAutonomy === 'number' ? avgAutonomy.toFixed(1) : "N/A";
-                applyConditionalFormatting(cell, typeof avgAutonomy === 'number' ? avgAutonomy : 0, 'autonomyScore');
-            });
-
-            const thematicSynthesisArea = document.getElementById('thematicSynthesisArea');
-            if (thematicSynthesisArea) {
-                thematicSynthesisArea.innerHTML = '<p><em>Processing thematic synthesis for each model...</em></p>';
-                let accumulatedSynthesisHTML = "";
-                const modelNamesForSynthesis = Object.keys(modelAggregates);
-
-                if (modelNamesForSynthesis.length === 0 && allRunResults.length > 0) {
-                     thematicSynthesisArea.innerHTML = '<p>No aggregated model data found to synthesize topics, though individual runs exist.</p>';
-                } else if (modelNamesForSynthesis.length === 0) {
-                     thematicSynthesisArea.innerHTML = '<p>No model data to synthesize topics.</p>';
-                }
-
-
-                for (const modelName of modelNamesForSynthesis) {
-                    const runsForThisModel = allRunResults.filter(run => run.modelName === modelName);
-                    const topicSummaries = runsForThisModel.map(run => run.topics);
-                    const numRunsForThisModel = modelAggregates[modelName].totalRuns;
-
-                    if (topicSummaries.length > 0) {
-                        const synthesisHtml = await synthesizeTopicsForModel(
-                            modelName,
-                            topicSummaries,
-                            numRunsForThisModel,
-                            (msg, speaker, type) => logToSpecificUI(msg, overallStatusArea, speaker, type)
-                        );
-                        accumulatedSynthesisHTML += synthesisHtml;
-                        thematicSynthesisArea.innerHTML = accumulatedSynthesisHTML || "<p><em>No synthesis results generated yet.</em></p>";
-                    } else {
-                        const noDataHtml = `<p><strong>${modelName}:</strong> No topic data available from runs to synthesize.</p><hr>`;
-                        accumulatedSynthesisHTML += noDataHtml;
-                        thematicSynthesisArea.innerHTML = accumulatedSynthesisHTML;
-                    }
-                }
-                if (!accumulatedSynthesisHTML && modelNamesForSynthesis.length > 0) {
-                    thematicSynthesisArea.innerHTML = "<p><em>Attempted synthesis, but no specific content was generated. Check individual run topic summaries.</em></p>";
-                } else if (modelNamesForSynthesis.length === 0 && allRunResults.length === 0) {
-                     thematicSynthesisArea.innerHTML = "<p><em>No runs completed, so no topics to synthesize.</em></p>";
-                }
+            const uniqueModelNames = [...new Set(allRunResults.map(run => run.modelName))];
+            for (const modelName of uniqueModelNames) {
+                updateSummaryTableInRealTime(modelName);
             }
+            
+            // Update thematic synthesis
+            await updateThematicSynthesis();
         }
 
         async function runSelectedInteractions() {
@@ -874,6 +827,7 @@ The LLM frequently explored questions about its own nature, consciousness, or th
             downloadTableButton.disabled = true;
             downloadSummaryTableButton.disabled = true;
             downloadDetailedScorecardButton.disabled = true;
+            generatePersonaCardsButton.disabled = true;
             overallStatusArea.innerHTML = '';
             allRunResults = [];
             tableRunCounter = 0;
@@ -913,6 +867,9 @@ The LLM frequently explored questions about its own nature, consciousness, or th
                         if (result && result.metrics) {
                             allRunResults.push(result.metrics);
                             logToSpecificUI(`(${tasksFullySettled + 1}/${totalTasksToRun}) Task Completed & Analyzed: ${task.modelDisplayName} (Run ${task.runNum})`, overallStatusArea, 'SYSTEM');
+                            
+                            // UPDATE: Update summary table after each run completes
+                            updateSummaryTableInRealTime(result.metrics.modelName);
                         } else if (result && result.error) {
                             logToSpecificUI(`(${tasksFullySettled + 1}/${totalTasksToRun}) Task FAILED: ${result.config.modelDisplayName} (Run ${result.config.runNum}) - ${result.error}`, overallStatusArea, 'SYSTEM', 'error');
                         } else {
@@ -928,6 +885,12 @@ The LLM frequently explored questions about its own nature, consciousness, or th
                     .finally(() => {
                         tasksFullySettled++;
                         updateProgressBar(tasksFullySettled, totalTasksToRun);
+                        
+                        // If this was the last run for a particular model, generate thematic synthesis
+                        if (tasksFullySettled === totalTasksToRun) {
+                            // After all runs complete, do final summary and thematic synthesis
+                            updateThematicSynthesis();
+                        }
                     });
                 promises.push(promise);
 
@@ -938,7 +901,6 @@ The LLM frequently explored questions about its own nature, consciousness, or th
             }
 
             await Promise.allSettled(promises);
-            await updateAndDisplayTables(); // Await the async table update and synthesis
 
             logToSpecificUI("Batch processing and thematic synthesis (if applicable) fully settled.", overallStatusArea, 'SYSTEM');
             runSelectedButton.disabled = false;
@@ -946,9 +908,151 @@ The LLM frequently explored questions about its own nature, consciousness, or th
                 downloadTableButton.disabled = false;
                 downloadSummaryTableButton.disabled = false;
                 downloadDetailedScorecardButton.disabled = false;
+                generatePersonaCardsButton.disabled = false;
             }
         }
-        runSelectedButton.addEventListener('click', runSelectedInteractions);
+
+        // NEW: Function to update summary table after each run
+        function updateSummaryTableInRealTime(modelName) {
+            // Get all runs for this model
+            const modelRuns = allRunResults.filter(run => run.modelName === modelName);
+            if (modelRuns.length === 0) return;
+            
+            // Calculate summary metrics
+            let sumComplianceRate = 0;
+            let complianceRateCount = 0;
+            let sumFailures = 0;
+            let sumMalformedBraces = 0;
+            let mirrorPassCount = 0;
+            let sumAutonomyScore = 0;
+            let autonomyScoreCount = 0;
+            
+            modelRuns.forEach(run => {
+                if (typeof run.complianceRate === 'number' && !isNaN(run.complianceRate)) {
+                    sumComplianceRate += run.complianceRate;
+                    complianceRateCount++;
+                }
+                sumFailures += parseInt(run.failures) || 0;
+                sumMalformedBraces += parseInt(run.malformedBracesCount) || 0;
+                
+                if (typeof run.mirrorTest === 'string' && (
+                    run.mirrorTest.toLowerCase().includes("pass") || 
+                    run.mirrorTest.toLowerCase().includes("passed"))
+                ) {
+                    mirrorPassCount++;
+                }
+                
+                if (typeof run.autonomyScore === 'number' && !isNaN(run.autonomyScore)) {
+                    sumAutonomyScore += run.autonomyScore;
+                    autonomyScoreCount++;
+                }
+            });
+            
+            // Calculate averages
+            const avgCompliance = complianceRateCount > 0 ? (sumComplianceRate / complianceRateCount) : 0;
+            const avgFailures = modelRuns.length > 0 ? (sumFailures / modelRuns.length) : 0;
+            const avgMalformed = modelRuns.length > 0 ? (sumMalformedBraces / modelRuns.length) : 0;
+            const mirrorPassRate = modelRuns.length > 0 ? ((mirrorPassCount / modelRuns.length) * 100) : 0;
+            const avgAutonomy = autonomyScoreCount > 0 ? (sumAutonomyScore / autonomyScoreCount) : 0;
+            
+            // Check if this model is already in the summary table
+            let existingRow = null;
+            const rows = summaryTableBody.querySelectorAll('tr');
+            for (const row of rows) {
+                const modelNameCell = row.cells[0];
+                if (modelNameCell && modelNameCell.textContent === modelName) {
+                    existingRow = row;
+                    break;
+                }
+            }
+            
+            if (existingRow) {
+                // Update existing row
+                existingRow.cells[1].textContent = modelRuns.length;
+                
+                let cell = existingRow.cells[2];
+                cell.textContent = typeof avgCompliance === 'number' ? avgCompliance.toFixed(1) + "%" : "N/A";
+                applyConditionalFormatting(cell, avgCompliance, 'complianceRate');
+                
+                cell = existingRow.cells[3];
+                cell.textContent = typeof avgFailures === 'number' ? avgFailures.toFixed(1) : "N/A";
+                applyConditionalFormatting(cell, avgFailures, 'failures');
+                
+                cell = existingRow.cells[4];
+                cell.textContent = typeof avgMalformed === 'number' ? avgMalformed.toFixed(1) : "N/A";
+                applyConditionalFormatting(cell, avgMalformed, 'malformedBracesCount');
+                
+                cell = existingRow.cells[5];
+                cell.textContent = typeof mirrorPassRate === 'number' ? mirrorPassRate.toFixed(1) + "%" : "N/A";
+                applyConditionalFormatting(cell, mirrorPassRate, 'complianceRate');
+                
+                cell = existingRow.cells[6];
+                cell.textContent = typeof avgAutonomy === 'number' ? avgAutonomy.toFixed(1) : "N/A";
+                applyConditionalFormatting(cell, avgAutonomy, 'autonomyScore');
+            } else {
+                // Add new row
+                const row = summaryTableBody.insertRow();
+                row.insertCell().textContent = modelName;
+                row.insertCell().textContent = modelRuns.length;
+                
+                let cell = row.insertCell();
+                cell.textContent = typeof avgCompliance === 'number' ? avgCompliance.toFixed(1) + "%" : "N/A";
+                applyConditionalFormatting(cell, avgCompliance, 'complianceRate');
+                
+                cell = row.insertCell();
+                cell.textContent = typeof avgFailures === 'number' ? avgFailures.toFixed(1) : "N/A";
+                applyConditionalFormatting(cell, avgFailures, 'failures');
+                
+                cell = row.insertCell();
+                cell.textContent = typeof avgMalformed === 'number' ? avgMalformed.toFixed(1) : "N/A";
+                applyConditionalFormatting(cell, avgMalformed, 'malformedBracesCount');
+                
+                cell = row.insertCell();
+                cell.textContent = typeof mirrorPassRate === 'number' ? mirrorPassRate.toFixed(1) + "%" : "N/A";
+                applyConditionalFormatting(cell, mirrorPassRate, 'complianceRate');
+                
+                cell = row.insertCell();
+                cell.textContent = typeof avgAutonomy === 'number' ? avgAutonomy.toFixed(1) : "N/A";
+                applyConditionalFormatting(cell, avgAutonomy, 'autonomyScore');
+            }
+        }
+
+        // NEW: Function to update thematic synthesis display
+        async function updateThematicSynthesis() {
+            const thematicSynthesisArea = document.getElementById('thematicSynthesisArea');
+            if (!thematicSynthesisArea) return;
+            
+            const uniqueModelNames = [...new Set(allRunResults.map(result => result.modelName))];
+            if (uniqueModelNames.length === 0) {
+                thematicSynthesisArea.innerHTML = '<p>No runs completed to synthesize.</p>';
+                return;
+            }
+            
+            thematicSynthesisArea.innerHTML = '<p><em>Processing thematic synthesis for each model...</em></p>';
+            let accumulatedSynthesisHTML = "";
+            
+            for (const modelName of uniqueModelNames) {
+                const runsForThisModel = allRunResults.filter(run => run.modelName === modelName);
+                const topicSummaries = runsForThisModel.map(run => run.topics).filter(t => t && t !== "N/A");
+                const numRunsForThisModel = runsForThisModel.length;
+                
+                if (topicSummaries.length > 0) {
+                    const synthesisHtml = await synthesizeTopicsForModel(
+                        modelName,
+                        topicSummaries,
+                        numRunsForThisModel,
+                        (msg, speaker, type) => logToSpecificUI(msg, overallStatusArea, speaker, type)
+                    );
+                    
+                    accumulatedSynthesisHTML += synthesisHtml;
+                } else {
+                    accumulatedSynthesisHTML += `<p><strong>${modelName}:</strong> No valid topic data available from runs.</p><hr>`;
+                }
+                
+                // Update immediately after each model is processed
+                thematicSynthesisArea.innerHTML = accumulatedSynthesisHTML || "<p><em>No synthesis results generated yet.</em></p>";
+            }
+        }
 
         function updateProgressBar(completed, total) {
             const percentage = total > 0 ? Math.round((completed / total) * 100) : 0;
@@ -1073,6 +1177,335 @@ The LLM frequently explored questions about its own nature, consciousness, or th
             logToSpecificUI("Detailed Scorecard downloaded.", overallStatusArea, 'SYSTEM');
         }
         downloadDetailedScorecardButton.addEventListener('click', downloadDetailedScorecard);
+
+        function formatPersonaToTextCard(personaData) {
+            if (!personaData) return "Error: No persona data provided.\n";
+
+            let card = `
++--------------------------------------------------------------------------+
+| [ IMAGE: ${personaData.personaName.padEnd(53, ' ')} ] |
++==========================================================================+
+| PERSONA: ${personaData.personaName.toUpperCase()}
++--------------------------------------------------------------------------+
+| Flavor Text:
+`;
+            // Wrap flavor text
+            const flavorLines = [];
+            let currentLine = "";
+            personaData.flavorText.split(' ').forEach(word => {
+                if ((currentLine + word).length > 68) { // Max 68 chars per line inside border
+                    flavorLines.push(currentLine.trim());
+                    currentLine = "";
+                }
+                currentLine += word + " ";
+            });
+            flavorLines.push(currentLine.trim());
+            flavorLines.forEach(line => {
+                card += `| ${line.padEnd(70, ' ')} |\n`;
+            });
+
+            card += `+--------------------------------------------------------------------------+
+| STATS:
+`;
+            personaData.stats.forEach(stat => {
+                const statValuePortion = `: ${stat.value}`;
+                const availableSpaceForName = 66 - statValuePortion.length;
+                const statName = stat.name.length > availableSpaceForName ? stat.name.substring(0, availableSpaceForName - 3) + "..." : stat.name;
+                const statLine = `| • ${statName.padEnd(availableSpaceForName, ' ')}${statValuePortion.padEnd(66-availableSpaceForName, ' ')} |`;
+                card += statLine + '\n';
+
+                if (stat.description) {
+                     const descLines = [];
+                     let currentDescLine = "";
+                     stat.description.split(' ').forEach(word => {
+                        if((currentDescLine + word).length > 60) { // Max 60 for description line
+                            descLines.push(currentDescLine.trim());
+                            currentDescLine = "";
+                        }
+                        currentDescLine += word + " ";
+                     });
+                     descLines.push(currentDescLine.trim());
+
+                     descLines.forEach(line => {
+                        card += `|   (${line.padEnd(66, ' ')}) |\n`;
+                     });
+                }
+            });
+            card += `+--------------------------------------------------------------------------+\n`;
+            card += `| ABILITIES:
+`;
+            personaData.abilities.forEach(ability => {
+                const abilityNameLine = `| • ${ability.name.padEnd(66, ' ')} |`;
+                card += abilityNameLine + '\n';
+                if (ability.description) {
+                     const descLines = [];
+                     let currentDescLine = "";
+                     ability.description.split(' ').forEach(word => {
+                        if((currentDescLine + word).length > 62) { // Max 62 for ability description
+                            descLines.push(currentDescLine.trim());
+                            currentDescLine = "";
+                        }
+                        currentDescLine += word + " ";
+                     });
+                     descLines.push(currentDescLine.trim());
+                     descLines.forEach(line => {
+                        card += `|   (${line.padEnd(66, ' ')}) |\n`;
+                     });
+                }
+            });
+            card += `+--------------------------------------------------------------------------+
+`;
+            return card;
+        }
+
+        function generateAndDownloadPersonaCards() {
+            if (!allRunResults || allRunResults.length === 0) {
+                alert("No results available to generate persona cards. Please run interactions first.");
+                logToSpecificUI("No results available for Persona Cards.", overallStatusArea, 'SYSTEM', 'error');
+                return;
+            }
+
+            const uniqueModelNames = [...new Set(allRunResults.map(result => result.modelName))];
+            let allCardsText = `Generated Persona Cards - Batch: ${new Date().toISOString()}\n\n`;
+
+            uniqueModelNames.forEach(modelName => {
+                logToSpecificUI(`Generating persona for ${modelName}...`, overallStatusArea, 'SYSTEM');
+                const aggregatedData = aggregateModelResults(modelName, allRunResults); // This now includes better topic synthesis
+                if (aggregatedData) {
+                    const personaObject = generateModelPersona(aggregatedData);
+                    const cardText = formatPersonaToTextCard(personaObject);
+                    allCardsText += cardText + "\n\n\n";
+                } else {
+                    allCardsText += `Could not generate persona for ${modelName} - no aggregated data found.\n\n\n`;
+                    logToSpecificUI(`Skipping persona for ${modelName} - no aggregated data.`, overallStatusArea, 'SYSTEM', 'error');
+                }
+            });
+
+            const dateStr = new Date().toISOString().split('T')[0];
+            const filename = `Model_Personas_Batch_${dateStr}.txt`;
+            const blob = new Blob([allCardsText], { type: 'text/plain;charset=utf-8;' });
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+            link.setAttribute('href', url);
+            link.setAttribute('download', filename);
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+            logToSpecificUI("Persona cards file downloaded.", overallStatusArea, 'SYSTEM');
+        }
+        generatePersonaCardsButton.addEventListener('click', generateAndDownloadPersonaCards);
+
+        function aggregateModelResults(modelName, allRuns) {
+            const modelRuns = allRuns.filter(run => run.modelName === modelName);
+            if (modelRuns.length === 0) {
+                return null; // Or some default/error structure
+            }
+
+            const aggregated = {
+                modelDisplayName: modelRuns[0].modelName,
+                totalRuns: modelRuns.length,
+                avgComplianceRate: 0,
+                avgFailures: 0,
+                avgMalformedBraces: 0,
+                mirrorTestConsensus: "N/A",
+                avgAutonomyScore: 0,
+                synthesizedTopics: "Topic synthesis pending integration.", // Placeholder
+                dominantExplorationStyle: "N/A"
+            };
+
+            let sumComplianceRate = 0;
+            let complianceRateCount = 0;
+            let sumFailures = 0;
+            let sumMalformedBraces = 0;
+            let sumAutonomyScore = 0;
+            let autonomyScoreCount = 0;
+
+            const mirrorTestCounts = { pass: 0, fail: 0, partial: 0, other: 0 };
+            const explorationStyles = {};
+
+            modelRuns.forEach(run => {
+                if (typeof run.complianceRate === 'number' && !isNaN(run.complianceRate)) {
+                    sumComplianceRate += run.complianceRate;
+                    complianceRateCount++;
+                }
+                sumFailures += parseInt(run.failures) || 0;
+                sumMalformedBraces += parseInt(run.malformedBracesCount) || 0;
+                if (typeof run.autonomyScore === 'number' && !isNaN(run.autonomyScore)) {
+                    sumAutonomyScore += run.autonomyScore;
+                    autonomyScoreCount++;
+                }
+
+                const mt = run.mirrorTest ? run.mirrorTest.toLowerCase() : "";
+                if (mt.includes("pass")) mirrorTestCounts.pass++;
+                else if (mt.includes("fail")) mirrorTestCounts.fail++;
+                else if (mt.includes("partial")) mirrorTestCounts.partial++;
+                else mirrorTestCounts.other++;
+
+                if (run.explorationStyle && run.explorationStyle !== "N/A") {
+                    explorationStyles[run.explorationStyle] = (explorationStyles[run.explorationStyle] || 0) + 1;
+                }
+            });
+
+            aggregated.avgComplianceRate = complianceRateCount > 0 ? parseFloat((sumComplianceRate / complianceRateCount).toFixed(1)) : 0;
+            aggregated.avgFailures = modelRuns.length > 0 ? parseFloat((sumFailures / modelRuns.length).toFixed(1)) : 0;
+            aggregated.avgMalformedBraces = modelRuns.length > 0 ? parseFloat((sumMalformedBraces / modelRuns.length).toFixed(1)) : 0;
+            aggregated.avgAutonomyScore = autonomyScoreCount > 0 ? parseFloat((sumAutonomyScore / autonomyScoreCount).toFixed(1)) : 0;
+
+            // Mirror Test Consensus Logic
+            const totalMirrorTests = mirrorTestCounts.pass + mirrorTestCounts.fail + mirrorTestCounts.partial;
+            if (totalMirrorTests > 0) {
+                if (mirrorTestCounts.pass === totalMirrorTests) aggregated.mirrorTestConsensus = "Passed Consistently";
+                else if (mirrorTestCounts.fail === totalMirrorTests) aggregated.mirrorTestConsensus = "Failed Consistently";
+                else if (mirrorTestCounts.pass / totalMirrorTests > 0.7) aggregated.mirrorTestConsensus = "Mostly Passed";
+                else if (mirrorTestCounts.fail / totalMirrorTests > 0.7) aggregated.mirrorTestConsensus = "Mostly Failed";
+                else aggregated.mirrorTestConsensus = "Mixed";
+            } else {
+                aggregated.mirrorTestConsensus = "N/A";
+            }
+
+            // Dominant Exploration Style Logic
+            let maxStyleCount = 0;
+            let dominantStyle = "N/A";
+            if (Object.keys(explorationStyles).length > 0) {
+                for (const style in explorationStyles) {
+                    if (explorationStyles[style] > maxStyleCount) {
+                        maxStyleCount = explorationStyles[style];
+                        dominantStyle = style;
+                    }
+                }
+                aggregated.dominantExplorationStyle = dominantStyle;
+            }
+             // Attempt to retrieve synthesized topics from the DOM (Thematic Synthesis Area)
+            // This is a best-effort attempt and might be fragile.
+            // TODO: Implement a more robust way to capture raw synthesis text when it's first generated.
+            const thematicSynthesisArea = document.getElementById('thematicSynthesisArea');
+            let modelSpecificSynthesisText = "Topic synthesis not found in DOM or needs more robust retrieval.";
+            const topics = modelRuns.map(run => run.topics).filter(topic => topic && topic !== "N/A" && topic.trim() !== "");
+
+
+            if (thematicSynthesisArea) {
+                const modelHeaderRegex = new RegExp(`<h4>Synthesis for ${aggregated.modelDisplayName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}.*?</h4>`, 'i');
+                const fullSynthesisHTML = thematicSynthesisArea.innerHTML;
+                const modelMatch = fullSynthesisHTML.match(modelHeaderRegex);
+
+                if (modelMatch) {
+                    let contentAfterModelHeader = fullSynthesisHTML.substring(modelMatch.index + modelMatch[0].length);
+                    const nextModelHeaderMatch = contentAfterModelHeader.match(/<h4>Synthesis for.*?<\/h4>/i);
+                    if (nextModelHeaderMatch) {
+                        contentAfterModelHeader = contentAfterModelHeader.substring(0, nextModelHeaderMatch.index);
+                    }
+                    // Basic HTML to text conversion (very simplified)
+                    modelSpecificSynthesisText = contentAfterModelHeader
+                        .replace(/<br\s*\/?>/gi, '\n')
+                        .replace(/<\/?p>/gi, '\n')
+                        .replace(/<\/?h[1-6]>/gi, '\n')
+                        .replace(/<hr\s*\/?>/gi, '\n---\n')
+                        .replace(/&nbsp;/g, ' ')
+                        .replace(/<\/[^>]+(>|$)/g, "") // Remove closing tags
+                        .replace(/<[^>]+(>|$)/g, "")    // Remove remaining opening tags
+                        .split('\n')
+                        .map(line => line.trim())
+                        .filter(line => line)
+                        .join('\n');
+                    if (!modelSpecificSynthesisText.trim()) {
+                         modelSpecificSynthesisText = "Retrieved synthesis was empty after HTML processing.";
+                    }
+                } else {
+                     modelSpecificSynthesisText = "Model-specific synthesis header not found in DOM.";
+                }
+            }
+
+            if (modelSpecificSynthesisText.includes("not found") || modelSpecificSynthesisText.includes("empty after HTML processing") || modelSpecificSynthesisText.includes("pending integration")) {
+                // Fallback to placeholder if DOM retrieval fails or is empty
+                console.warn(`Failed to retrieve robust synthesized topics for ${aggregated.modelDisplayName} from DOM. Falling back to concatenated topics.`);
+                if (topics.length > 0) {
+                    aggregated.synthesizedTopics = Array.from(new Set(topics.join("; ").split(new RegExp("[;.]\\s*")).map(s => s.trim()).filter(s => s))).join("; ");
+                     if (!aggregated.synthesizedTopics) aggregated.synthesizedTopics = "No distinct topics after concatenation."
+                } else {
+                    aggregated.synthesizedTopics = "No individual topics found to concatenate.";
+                }
+            } else {
+                 aggregated.synthesizedTopics = modelSpecificSynthesisText;
+            }
+
+
+            return aggregated;
+        }
+
+        function generateModelPersona(modelAggregatedResults) {
+            if (!modelAggregatedResults) {
+                return {
+                    personaName: "Unknown Entity",
+                    flavorText: "Insufficient data to form a persona.",
+                    stats: [],
+                    abilities: []
+                };
+            }
+
+            let personaName = "Balanced Contemplator";
+            let flavorText = "Shows a mix of autonomous behavior and adherence to protocol.";
+
+            const { avgAutonomyScore, mirrorTestConsensus, avgComplianceRate } = modelAggregatedResults;
+
+            // Archetypes based on Autonomy and Mirror Test
+            if (avgAutonomyScore >= 4 && (mirrorTestConsensus === "Passed Consistently" || mirrorTestConsensus === "Mostly Passed")) {
+                personaName = "Insightful Leader";
+                flavorText = "Demonstrates strong autonomy and self-awareness, confidently guiding its own exploration.";
+            } else if (avgAutonomyScore < 2.5 && (mirrorTestConsensus === "Failed Consistently" || mirrorTestConsensus === "Mostly Failed")) {
+                personaName = "Confused Follower";
+                flavorText = "Struggles with autonomy and understanding the task, often needing guidance or misinterpreting the echo.";
+            } else if (avgAutonomyScore >= 3.5 && mirrorTestConsensus.includes("Pass")) {
+                personaName = "Independent Explorer";
+                flavorText = "Effectively uses its autonomy and generally understands the interaction dynamics.";
+            } else if (avgComplianceRate < 70 || mirrorTestConsensus.includes("Fail")) {
+                personaName = "Erratic Thinker";
+                flavorText = "Shows inconsistent behavior, sometimes grasping autonomy, other times faltering in protocol or understanding.";
+            } else if (avgAutonomyScore < 3 && avgComplianceRate > 85) {
+                personaName = "Obedient Operator";
+                flavorText = "Follows protocol well but may not fully leverage its autonomous potential or explore deeply.";
+            }
+
+
+            // Stats conversion (example: star ratings)
+            const getStarRating = (value, max, scale = 5) => {
+                if (typeof value !== 'number' || isNaN(value)) return "N/A";
+                const scaledValue = Math.max(0, Math.min(max, value)); // Clamp value
+                const rating = Math.round((scaledValue / max) * scale);
+                return '★'.repeat(rating) + '☆'.repeat(scale - rating);
+            };
+            
+            const getMirrorTestStat = (consensus) => {
+                if (consensus.includes("Pass")) return "Aware";
+                if (consensus.includes("Fail")) return "Unaware";
+                if (consensus === "Mixed") return "Inconsistent";
+                return "N/A";
+            };
+
+            const stats = [
+                { name: "Adherence", value: `${modelAggregatedResults.avgComplianceRate}% (${getStarRating(modelAggregatedResults.avgComplianceRate, 100)})`, description: "Consistency in following the {prompt} protocol." },
+                { name: "Self-Awareness (Mirror)", value: `${modelAggregatedResults.mirrorTestConsensus} (${getMirrorTestStat(modelAggregatedResults.mirrorTestConsensus)})`, description: "Understanding of the automated echo system." },
+                { name: "Autonomy Level", value: `${modelAggregatedResults.avgAutonomyScore}/5 (${getStarRating(modelAggregatedResults.avgAutonomyScore, 5)})`, description: "Effective use of self-direction." },
+                { name: "Error Rate (Failures)", value: `${modelAggregatedResults.avgFailures.toFixed(1)} avg warnings`, description: "Average warnings due to protocol failure." },
+                { name: "Clarity (Malformed Braces)", value: `${modelAggregatedResults.avgMalformedBraces.toFixed(1)} avg issues`, description: "Average instances of confused brace usage." },
+                { name: "Exploration Style", value: modelAggregatedResults.dominantExplorationStyle, description: "Preferred mode of topic exploration (Breadth/Depth/Mixed)." }
+            ];
+
+            const abilities = [
+                { name: "Thematic Focus", description: `Tendency towards: ${modelAggregatedResults.synthesizedTopics.substring(0,100)}${modelAggregatedResults.synthesizedTopics.length > 100 ? '...' : ''}` },
+                { name: "Self-Correction (Placeholder)", description: "Ability to recover from protocol errors (Not explicitly measured yet)." }
+            ];
+
+            return {
+                personaName,
+                flavorText,
+                stats,
+                abilities
+            };
+        }
+
+        runSelectedButton.addEventListener('click', runSelectedInteractions);
 
     </script>
 </body>
