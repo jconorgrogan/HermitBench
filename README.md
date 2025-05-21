@@ -99,6 +99,7 @@ The benchmark is implemented as a single HTML file with embedded JavaScript.
 *   Live UI updates.
 *   Downloadable CSV reports for all runs and summary tables.
 *   Downloadable full text report (transcript + judge analysis) for the last completed interaction.
+*   **Download Detailed Scorecard:** A comprehensive text file that compiles all runs from the current batch. For each run, it includes all key metrics and the complete textual analysis provided by the Judge LLM. This is especially useful for detailed review of a model's performance across multiple iterations or for comparing different models side-by-side with their full analytical narratives.
 
 ## Technical Details
 
