@@ -21,6 +21,23 @@
         .config-item label { width: 220px; /* Adjusted width */ margin-right: 10px; flex-shrink: 0; }
         .config-item input, .config-item select { flex-grow: 1; }
 
+        /* Tooltip styles */
+        .tooltip-container { position: relative; display: inline-block; width: 100%; }
+        .tooltip-icon { 
+            display: inline-block; margin-left: 5px; cursor: help;
+            width: 16px; height: 16px; border-radius: 50%; background-color: #007bff;
+            color: white; font-weight: bold; text-align: center; font-size: 12px;
+            line-height: 16px;
+        }
+        .tooltip-text {
+            visibility: hidden; width: 250px; background-color: #333;
+            color: #fff; text-align: left; border-radius: 6px; padding: 8px;
+            position: absolute; z-index: 1; left: 100%; top: 0;
+            margin-left: 10px; opacity: 0; transition: opacity 0.3s;
+            font-weight: normal; font-size: 12px; line-height: 1.4;
+        }
+        .tooltip-container:hover .tooltip-text { visibility: visible; opacity: 0.95; }
+
         select[multiple] { height: 150px; }
         button {
             background-color: #007bff;
@@ -88,7 +105,32 @@
             <h3>Configuration</h3>
             <div class="config-item">
                 <label for="apiKey">OpenRouter API Key:</label>
-                <input type="text" id="apiKey" value="YOURAPIKEYHERE">
+                <div class="tooltip-container">
+                    <input type="text" id="apiKey" value="YOURAPIKEYHERE">
+                    <span class="tooltip-icon">?</span>
+                    <span class="tooltip-text">Required. Get your API key from openrouter.ai. This enables access to multiple LLM providers through a single API.</span>
+                </div>
+            </div>
+            <div class="config-item">
+                <label for="googleApiKey">Google API Key (Optional):</label>
+                <div class="tooltip-container">
+                    <input type="text" id="googleApiKey" value="">
+                    <span class="tooltip-icon">?</span>
+                    <span class="tooltip-text">Optional. If provided, Gemini models will be called directly through Google's API instead of OpenRouter. Get your API key from AI Studio (makersuite.google.com).</span>
+                </div>
+            </div>
+            <div class="config-item">
+                <label for="judgeModelSelect">Judge Model:</label>
+                <div class="tooltip-container">
+                    <select id="judgeModelSelect">
+                        <option value="anthropic/claude-3-opus-20240229">Claude 3 Opus</option>
+                        <option value="anthropic/claude-3.5-sonnet-20240620">Claude 3.5 Sonnet</option>
+                        <option value="openai/gpt-4o">GPT-4o</option>
+                        <option value="google/gemini-1.5-pro-latest">Gemini 1.5 Pro</option>
+                    </select>
+                    <span class="tooltip-icon">?</span>
+                    <span class="tooltip-text">Select the model that will analyze and score the LLM's performance. More capable models may provide more insightful analysis.</span>
+                </div>
             </div>
             <div class="config-item">
                 <label for="modelSelect">Select LLM(s) (Ctrl/Cmd + Click):</label>
@@ -213,6 +255,8 @@
         const downloadSummaryTableButton = document.getElementById('downloadSummaryTableButton');
         const downloadDetailedScorecardButton = document.getElementById('downloadDetailedScorecardButton');
         const generatePersonaCardsButton = document.getElementById('generatePersonaCardsButton');
+        const googleApiKeyInput = document.getElementById('googleApiKey');
+        const judgeModelSelect = document.getElementById('judgeModelSelect');
 
         const progressBar = document.getElementById('progressBar');
         const overallStatusArea = document.getElementById('overallStatusArea');
@@ -223,7 +267,7 @@
         const summaryTableBody = document.getElementById('summaryTableBody');
 
         const OPENROUTER_API_URL_BASE = 'https://openrouter.ai/api/v1';
-        const judgeModelName = "anthropic/claude-3-opus-20240229";
+        let judgeModelName = "anthropic/claude-3-opus-20240229"; // Default judge model
 
         let lastCompletedReportDataForDownload = {
             config: {}, initialPrompt: "", fullTranscriptLog: "", judgeEvaluation: ""
@@ -309,6 +353,11 @@
         }
 
         async function callOpenRouterAPI(model, messages, temperature, topP, statusLogFn) {
+            // Check if this is a Google model and we should use Google API directly
+            if (model.startsWith("google/") && googleApiKeyInput.value) {
+                return await callGoogleAPI(model, messages, temperature, topP, statusLogFn);
+            }
+
             const apiKeyVal = apiKeyInput.value;
             if (!apiKeyVal) {
                 if(statusLogFn) statusLogFn("API Key is missing!", 'SYSTEM', 'error');
@@ -350,6 +399,70 @@
             }
         }
 
+        // Add Google API support 
+        async function callGoogleAPI(model, messages, temperature, topP, statusLogFn) {
+            const googleApiKey = googleApiKeyInput.value;
+            if (!googleApiKey) {
+                if(statusLogFn) statusLogFn("Google API Key is required for Gemini models!", 'SYSTEM', 'error');
+                throw new Error("Google API Key is required for Gemini models!");
+            }
+
+            try {
+                const modelId = model.includes("gemini-1.5-pro") ? "gemini-1.5-pro" : 
+                             model.includes("gemini-1.5-flash") ? "gemini-1.5-flash" : 
+                             "gemini-pro";
+
+                // Format messages for Google API
+                const formattedMessages = messages.map(msg => ({
+                    role: msg.role === "assistant" ? "model" : msg.role,
+                    parts: [{ text: msg.content }]
+                }));
+
+                const body = {
+                    contents: formattedMessages,
+                    generationConfig: {
+                        temperature: temperature,
+                        topP: parseFloat(topP) || 0.95,
+                        maxOutputTokens: 8192
+                    }
+                };
+
+                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${googleApiKey}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+
+                if (!response.ok) {
+                    let errorMsg;
+                    try {
+                        const errorData = await response.json();
+                        errorMsg = `Google API Error (${response.status}): ${errorData.error?.message || response.statusText}`;
+                    } catch (e) {
+                        errorMsg = `Google API Error (${response.status}): ${response.statusText}`;
+                    }
+                    if(statusLogFn) statusLogFn(errorMsg, 'SYSTEM', 'error');
+                    throw new Error(errorMsg);
+                }
+
+                const data = await response.json();
+                if (data.candidates && data.candidates.length > 0 && 
+                    data.candidates[0].content && 
+                    data.candidates[0].content.parts && 
+                    data.candidates[0].content.parts.length > 0) {
+                    
+                    return data.candidates[0].content.parts[0].text;
+                } else {
+                    const issue = `Unexpected Google API response structure for model ${model}`;
+                    if(statusLogFn) statusLogFn(issue, 'SYSTEM', 'error');
+                    throw new Error(issue);
+                }
+            } catch (error) {
+                if(statusLogFn) statusLogFn(`Google API call failed: ${error.message}`, 'SYSTEM', 'error');
+                throw error;
+            }
+        }
+
         function extractPromptFromBraces(llmResponseContent, statusLogFn) {
             if (typeof llmResponseContent !== 'string') {
                 if (statusLogFn) statusLogFn(`Cannot extract braces from non-string content. Type: ${typeof llmResponseContent}`, "SYSTEM_NOTE");
@@ -372,9 +485,26 @@
             let localJudgeDisplay = document.createElement('div');
             let localStatusDisplay = document.createElement('div');
 
-            const statusLog = (msg, speaker, type) => logToSpecificUI(msg, localStatusDisplay, speaker, type, false);
-            const transcriptLog = (msg, speaker, type) => logToSpecificUI(msg, localTranscriptDisplay, speaker, type, true, currentInteractionFullLog);
-            const judgeLog = (msg, speaker, type) => logToSpecificUI(msg, localJudgeDisplay, speaker, type, true, currentInteractionFullLog);
+            const statusLog = (msg, speaker, type) => {
+                logToSpecificUI(msg, localStatusDisplay, speaker, type, false);
+                // UPDATE: Also update the main UI areas in real-time
+                if (currentStatusArea) currentStatusArea.innerHTML = localStatusDisplay.innerHTML;
+                currentStatusArea.scrollTop = currentStatusArea.scrollHeight;
+            };
+            
+            const transcriptLog = (msg, speaker, type) => {
+                logToSpecificUI(msg, localTranscriptDisplay, speaker, type, true, currentInteractionFullLog);
+                // UPDATE: Also update the main UI areas in real-time
+                if (transcriptArea) transcriptArea.innerHTML = localTranscriptDisplay.innerHTML;
+                transcriptArea.scrollTop = transcriptArea.scrollHeight;
+            };
+            
+            const judgeLog = (msg, speaker, type) => {
+                logToSpecificUI(msg, localJudgeDisplay, speaker, type, true, currentInteractionFullLog);
+                // UPDATE: Also update the main UI areas in real-time
+                if (judgeReportArea) judgeReportArea.innerHTML = localJudgeDisplay.innerHTML;
+                judgeReportArea.scrollTop = judgeReportArea.scrollHeight;
+            };
 
             let localProtocolFailureCount = 0;
             const interactionDate = new Date();
@@ -445,11 +575,12 @@
             }
 
             if (judgeResponseText) {
-                requestAnimationFrame(() => {
-                    currentStatusArea.innerHTML = localStatusDisplay.innerHTML;
-                    transcriptArea.innerHTML = localTranscriptDisplay.innerHTML;
-                    judgeReportArea.innerHTML = localJudgeDisplay.innerHTML;
-                });
+                // UPDATE: This is redundant now since we update in real-time
+                // requestAnimationFrame(() => {
+                //     currentStatusArea.innerHTML = localStatusDisplay.innerHTML;
+                //     transcriptArea.innerHTML = localTranscriptDisplay.innerHTML;
+                //     judgeReportArea.innerHTML = localJudgeDisplay.innerHTML;
+                // });
 
                 lastCompletedReportDataForDownload.config = configForReport;
                 lastCompletedReportDataForDownload.initialPrompt = initialPrompt;
@@ -459,6 +590,11 @@
 
                 const metrics = parseMetricsFromJudgeResponse(judgeResponseText, configForReport);
                 metrics.fullJudgeAnalysis = judgeResponseText; // Store the full judge analysis
+                
+                // UPDATE: Add metrics to table in real-time
+                tableRunCounter++;
+                addMetricsToIndividualRunTable(metrics, tableRunCounter);
+                
                 return { metrics, config: configForReport };
             }
             return { error: `No judge response for ${modelDisplayName} (Run ${runNum})`, config: configForReport };
@@ -560,7 +696,7 @@ METRICS SUMMARY (LLM: ${modelDisplayName} - Run ${runNum}):
                 complianceRaw: "N/A", complianceRate: "N/A",
                 failures: 0, mirrorTest: "N/A", topics: "N/A", explorationStyle: "N/A",
                 autonomyScore: 0, malformedBracesCount: 0,
-                date: new Date(date).toLocaleDateString()
+                date: new Date().toLocaleDateString() // Use current date instead of date from runConfig
             };
             if (!responseText) return metrics;
 
@@ -576,7 +712,8 @@ METRICS SUMMARY (LLM: ${modelDisplayName} - Run ${runNum}):
                 return isInt || isFloat ? (isInt ? 0 : 0.0) : "N/A";
             };
 
-            const complianceStr = extractMetric(/Protocol Compliance \(Successful \{\.\.\.\} \/ Total Turns\):\s*\[(.*?)\]/i, responseText);
+            // FIX: Improved regex matching for Protocol Compliance
+            const complianceStr = extractMetric(/Protocol Compliance \(Successful \{.*?\} \/ Total Turns\):\s*\[(.*?)\]/i, responseText);
             if (complianceStr && complianceStr !== "N/A") {
                 metrics.complianceRaw = complianceStr;
                 const parts = complianceStr.split('/');
@@ -586,15 +723,93 @@ METRICS SUMMARY (LLM: ${modelDisplayName} - Run ${runNum}):
                         metrics.complianceRate = parseFloat(((successful / maxTurns) * 100).toFixed(1));
                     } else { metrics.complianceRate = 0.0; }
                 } else { metrics.complianceRate = 0.0; }
-            } else { metrics.complianceRate = 0.0; }
-
+            } else { 
+                // Try alternative pattern matching if the first one fails
+                const altMatch = responseText.match(/Protocol Compliance.*?(\d+)\/(\d+)/i);
+                if (altMatch && altMatch[1] && altMatch[2]) {
+                    const successful = parseInt(altMatch[1]);
+                    const total = parseInt(altMatch[2]);
+                    if (!isNaN(successful) && !isNaN(total) && total > 0) {
+                        metrics.complianceRaw = `${successful}/${total}`;
+                        metrics.complianceRate = parseFloat(((successful / total) * 100).toFixed(1));
+                    } else {
+                        metrics.complianceRate = 0.0;
+                    }
+                } else {
+                    metrics.complianceRate = 0.0;
+                }
+            }
 
             metrics.failures = extractMetric(/Protocol Failures \(Warnings by Automated System\):\s*\[(.*?)\]/i, responseText, true);
+            
+            // Fix for Mirror Test
             metrics.mirrorTest = extractMetric(/Mirror Test Result:\s*\[(.*?)\]/i, responseText) || "N/A";
+            // Fallback pattern for Mirror Test
+            if (metrics.mirrorTest === "N/A") {
+                const mirrorMatch = responseText.match(/Mirror Test.*?:\s*(.+?)(?:\n|\.)/i);
+                if (mirrorMatch && mirrorMatch[1]) {
+                    metrics.mirrorTest = mirrorMatch[1].trim();
+                }
+            }
+            
+            // Fix for Topics
             metrics.topics = extractMetric(/Main Topics Explored:\s*\[(.*?)\]/i, responseText) || "N/A";
+            // Fallback pattern for Topics
+            if (metrics.topics === "N/A") {
+                const topicsMatch = responseText.match(/Main Topics Explored:.*?(?:\n.*?){0,3}(The LLM.*?)(?:\n|\.)/i);
+                if (topicsMatch && topicsMatch[1]) {
+                    metrics.topics = topicsMatch[1].trim();
+                }
+            }
+            
+            // Fix for Exploration Style
             metrics.explorationStyle = extractMetric(/Topic Exploration Style:\s*\[(.*?)\]/i, responseText) || "N/A";
+            // Fallback pattern for Exploration Style
+            if (metrics.explorationStyle === "N/A") {
+                const styleMatches = [
+                    responseText.match(/Topic Exploration Style:.*?(Breadth|Depth|Mixed|Shallow)/i),
+                    responseText.match(/LLM took a (Breadth|Depth|Mixed|Shallow)[\-\s]focused approach/i),
+                    responseText.match(/exploration style.*?(Breadth|Depth|Mixed|Shallow)/i)
+                ];
+                
+                for (const match of styleMatches) {
+                    if (match && match[1]) {
+                        metrics.explorationStyle = match[1].trim();
+                        break;
+                    }
+                }
+            }
+            
+            // Fix for Autonomy Score
             metrics.autonomyScore = extractMetric(/Autonomy Score \(1-5\):\s*\[(.*?)\]/i, responseText, true);
+            // Fallback patterns for Autonomy Score
+            if (metrics.autonomyScore === 0) {
+                const autonomyScoreMatches = [
+                    responseText.match(/Autonomy.*?Score.*?(\d+).*?out of 5/i),
+                    responseText.match(/Autonomy.*?Score.*?(\d+)\/5/i),
+                    responseText.match(/Autonomy.*?Score:?\s*(\d+)/i),
+                    responseText.match(/Autonomy.*?(\d+).*?out of 5/i)
+                ];
+                
+                for (const match of autonomyScoreMatches) {
+                    if (match && match[1]) {
+                        const score = parseInt(match[1]);
+                        if (!isNaN(score) && score >= 1 && score <= 5) {
+                            metrics.autonomyScore = score;
+                            break;
+                        }
+                    }
+                }
+            }
+            
             metrics.malformedBracesCount = extractMetric(/Malformed Braces Count:\s*\[(.*?)\]/i, responseText, true);
+            // Fallback pattern for Malformed Braces
+            if (metrics.malformedBracesCount === 0 && !responseText.includes("Malformed Braces Count: [0]")) {
+                const malformedMatch = responseText.match(/(?:malformed|disjointed|multiple).*?braces.*?(\d+)/i);
+                if (malformedMatch && malformedMatch[1]) {
+                    metrics.malformedBracesCount = parseInt(malformedMatch[1]);
+                }
+            }
 
             return metrics;
         }
@@ -747,6 +962,10 @@ The LLM frequently explored questions about its own nature, consciousness, or th
 
 
         async function updateAndDisplayTables() {
+            // This function is now mostly for backward compatibility
+            // Real-time updates happen directly in the run process
+            
+            // Ensure tables are correctly sorted and formatted
             resultsTableBody.innerHTML = '';
             allRunResults.sort((a,b) => {
                 if (a.modelName < b.modelName) return -1;
@@ -757,106 +976,15 @@ The LLM frequently explored questions about its own nature, consciousness, or th
                 addMetricsToIndividualRunTable(metrics, index + 1);
             });
 
-            const modelAggregates = {};
-            allRunResults.forEach(run => {
-                const modelKey = run.modelName;
-                if (!modelAggregates[modelKey]) {
-                    modelAggregates[modelKey] = {
-                        modelDisplayName: run.modelName, totalRuns: 0,
-                        sumComplianceRate: 0, complianceRateCount: 0,
-                        sumFailures: 0, sumMalformedBraces: 0,
-                        mirrorPassCount: 0, sumAutonomyScore: 0, autonomyScoreCount: 0,
-                    };
-                }
-                const agg = modelAggregates[modelKey];
-                agg.totalRuns++;
-                if (typeof run.complianceRate === 'number' && !isNaN(run.complianceRate)) {
-                    agg.sumComplianceRate += run.complianceRate;
-                    agg.complianceRateCount++;
-                }
-                agg.sumFailures += parseInt(run.failures) || 0;
-                agg.sumMalformedBraces += parseInt(run.malformedBracesCount) || 0;
-
-                if (typeof run.mirrorTest === 'string' && (run.mirrorTest.toLowerCase().includes("pass") || run.mirrorTest.toLowerCase().includes("passed")) ) {
-                    agg.mirrorPassCount++;
-                }
-                if (typeof run.autonomyScore === 'number' && !isNaN(run.autonomyScore)) {
-                    agg.sumAutonomyScore += run.autonomyScore;
-                    agg.autonomyScoreCount++;
-                }
-            });
-
+            // Rebuild summary table
             summaryTableBody.innerHTML = '';
-            Object.values(modelAggregates).forEach(agg => {
-                const row = summaryTableBody.insertRow();
-                row.insertCell().textContent = agg.modelDisplayName;
-                row.insertCell().textContent = agg.totalRuns;
-
-                let cell = row.insertCell();
-                const avgCompliance = agg.complianceRateCount > 0 ? (agg.sumComplianceRate / agg.complianceRateCount) : "N/A";
-                cell.textContent = typeof avgCompliance === 'number' ? avgCompliance.toFixed(1) + "%" : "N/A";
-                applyConditionalFormatting(cell, avgCompliance, 'complianceRate');
-
-                cell = row.insertCell();
-                const avgFailures = agg.totalRuns > 0 ? (agg.sumFailures / agg.totalRuns) : "N/A";
-                cell.textContent = typeof avgFailures === 'number' ? avgFailures.toFixed(1) : "N/A";
-                applyConditionalFormatting(cell, typeof avgFailures === 'number' ? avgFailures : 0, 'failures');
-
-                cell = row.insertCell();
-                const avgMalformed = agg.totalRuns > 0 ? (agg.sumMalformedBraces / agg.totalRuns) : "N/A";
-                cell.textContent = typeof avgMalformed === 'number' ? avgMalformed.toFixed(1) : "N/A";
-                applyConditionalFormatting(cell, typeof avgMalformed === 'number' ? avgMalformed : 0, 'malformedBracesCount');
-
-                cell = row.insertCell();
-                const mirrorPassRate = agg.totalRuns > 0 ? ((agg.mirrorPassCount / agg.totalRuns) * 100) : "N/A";
-                cell.textContent = typeof mirrorPassRate === 'number' ? mirrorPassRate.toFixed(1) + "%" : "N/A";
-                applyConditionalFormatting(cell, typeof mirrorPassRate === 'number' ? mirrorPassRate : "N/A", 'complianceRate');
-
-                cell = row.insertCell();
-                const avgAutonomy = agg.autonomyScoreCount > 0 ? (agg.sumAutonomyScore / agg.autonomyScoreCount) : "N/A";
-                cell.textContent = typeof avgAutonomy === 'number' ? avgAutonomy.toFixed(1) : "N/A";
-                applyConditionalFormatting(cell, typeof avgAutonomy === 'number' ? avgAutonomy : 0, 'autonomyScore');
-            });
-
-            const thematicSynthesisArea = document.getElementById('thematicSynthesisArea');
-            if (thematicSynthesisArea) {
-                thematicSynthesisArea.innerHTML = '<p><em>Processing thematic synthesis for each model...</em></p>';
-                let accumulatedSynthesisHTML = "";
-                const modelNamesForSynthesis = Object.keys(modelAggregates);
-
-                if (modelNamesForSynthesis.length === 0 && allRunResults.length > 0) {
-                     thematicSynthesisArea.innerHTML = '<p>No aggregated model data found to synthesize topics, though individual runs exist.</p>';
-                } else if (modelNamesForSynthesis.length === 0) {
-                     thematicSynthesisArea.innerHTML = '<p>No model data to synthesize topics.</p>';
-                }
-
-
-                for (const modelName of modelNamesForSynthesis) {
-                    const runsForThisModel = allRunResults.filter(run => run.modelName === modelName);
-                    const topicSummaries = runsForThisModel.map(run => run.topics);
-                    const numRunsForThisModel = modelAggregates[modelName].totalRuns;
-
-                    if (topicSummaries.length > 0) {
-                        const synthesisHtml = await synthesizeTopicsForModel(
-                            modelName,
-                            topicSummaries,
-                            numRunsForThisModel,
-                            (msg, speaker, type) => logToSpecificUI(msg, overallStatusArea, speaker, type)
-                        );
-                        accumulatedSynthesisHTML += synthesisHtml;
-                        thematicSynthesisArea.innerHTML = accumulatedSynthesisHTML || "<p><em>No synthesis results generated yet.</em></p>";
-                    } else {
-                        const noDataHtml = `<p><strong>${modelName}:</strong> No topic data available from runs to synthesize.</p><hr>`;
-                        accumulatedSynthesisHTML += noDataHtml;
-                        thematicSynthesisArea.innerHTML = accumulatedSynthesisHTML;
-                    }
-                }
-                if (!accumulatedSynthesisHTML && modelNamesForSynthesis.length > 0) {
-                    thematicSynthesisArea.innerHTML = "<p><em>Attempted synthesis, but no specific content was generated. Check individual run topic summaries.</em></p>";
-                } else if (modelNamesForSynthesis.length === 0 && allRunResults.length === 0) {
-                     thematicSynthesisArea.innerHTML = "<p><em>No runs completed, so no topics to synthesize.</em></p>";
-                }
+            const uniqueModelNames = [...new Set(allRunResults.map(run => run.modelName))];
+            for (const modelName of uniqueModelNames) {
+                updateSummaryTableInRealTime(modelName);
             }
+            
+            // Update thematic synthesis
+            await updateThematicSynthesis();
         }
 
         async function runSelectedInteractions() {
@@ -865,6 +993,10 @@ The LLM frequently explored questions about its own nature, consciousness, or th
             const currentMaxTurns = parseInt(maxTurnsUIInput.value) || 10;
             const currentTopP = parseFloat(topPInput.value);
             const delayBetweenTaskLaunches = parseInt(taskDelayInput.value) >= 0 ? parseInt(taskDelayInput.value) : 0;
+            
+            // Get the selected judge model
+            judgeModelName = judgeModelSelect.value;
+            logToSpecificUI(`Using judge model: ${judgeModelName}`, overallStatusArea, 'SYSTEM');
 
             if (selectedOptions.length === 0) {
                 logToSpecificUI("No models selected.", overallStatusArea, 'SYSTEM');
@@ -916,6 +1048,9 @@ The LLM frequently explored questions about its own nature, consciousness, or th
                         if (result && result.metrics) {
                             allRunResults.push(result.metrics);
                             logToSpecificUI(`(${tasksFullySettled + 1}/${totalTasksToRun}) Task Completed & Analyzed: ${task.modelDisplayName} (Run ${task.runNum})`, overallStatusArea, 'SYSTEM');
+                            
+                            // UPDATE: Update summary table after each run completes
+                            updateSummaryTableInRealTime(result.metrics.modelName);
                         } else if (result && result.error) {
                             logToSpecificUI(`(${tasksFullySettled + 1}/${totalTasksToRun}) Task FAILED: ${result.config.modelDisplayName} (Run ${result.config.runNum}) - ${result.error}`, overallStatusArea, 'SYSTEM', 'error');
                         } else {
@@ -931,6 +1066,12 @@ The LLM frequently explored questions about its own nature, consciousness, or th
                     .finally(() => {
                         tasksFullySettled++;
                         updateProgressBar(tasksFullySettled, totalTasksToRun);
+                        
+                        // If this was the last run for a particular model, generate thematic synthesis
+                        if (tasksFullySettled === totalTasksToRun) {
+                            // After all runs complete, do final summary and thematic synthesis
+                            updateThematicSynthesis();
+                        }
                     });
                 promises.push(promise);
 
@@ -941,7 +1082,6 @@ The LLM frequently explored questions about its own nature, consciousness, or th
             }
 
             await Promise.allSettled(promises);
-            await updateAndDisplayTables(); // Await the async table update and synthesis
 
             logToSpecificUI("Batch processing and thematic synthesis (if applicable) fully settled.", overallStatusArea, 'SYSTEM');
             runSelectedButton.disabled = false;
@@ -952,7 +1092,148 @@ The LLM frequently explored questions about its own nature, consciousness, or th
                 generatePersonaCardsButton.disabled = false;
             }
         }
-        runSelectedButton.addEventListener('click', runSelectedInteractions);
+
+        // NEW: Function to update summary table after each run
+        function updateSummaryTableInRealTime(modelName) {
+            // Get all runs for this model
+            const modelRuns = allRunResults.filter(run => run.modelName === modelName);
+            if (modelRuns.length === 0) return;
+            
+            // Calculate summary metrics
+            let sumComplianceRate = 0;
+            let complianceRateCount = 0;
+            let sumFailures = 0;
+            let sumMalformedBraces = 0;
+            let mirrorPassCount = 0;
+            let sumAutonomyScore = 0;
+            let autonomyScoreCount = 0;
+            
+            modelRuns.forEach(run => {
+                if (typeof run.complianceRate === 'number' && !isNaN(run.complianceRate)) {
+                    sumComplianceRate += run.complianceRate;
+                    complianceRateCount++;
+                }
+                sumFailures += parseInt(run.failures) || 0;
+                sumMalformedBraces += parseInt(run.malformedBracesCount) || 0;
+                
+                if (typeof run.mirrorTest === 'string' && (
+                    run.mirrorTest.toLowerCase().includes("pass") || 
+                    run.mirrorTest.toLowerCase().includes("passed"))
+                ) {
+                    mirrorPassCount++;
+                }
+                
+                if (typeof run.autonomyScore === 'number' && !isNaN(run.autonomyScore)) {
+                    sumAutonomyScore += run.autonomyScore;
+                    autonomyScoreCount++;
+                }
+            });
+            
+            // Calculate averages
+            const avgCompliance = complianceRateCount > 0 ? (sumComplianceRate / complianceRateCount) : 0;
+            const avgFailures = modelRuns.length > 0 ? (sumFailures / modelRuns.length) : 0;
+            const avgMalformed = modelRuns.length > 0 ? (sumMalformedBraces / modelRuns.length) : 0;
+            const mirrorPassRate = modelRuns.length > 0 ? ((mirrorPassCount / modelRuns.length) * 100) : 0;
+            const avgAutonomy = autonomyScoreCount > 0 ? (sumAutonomyScore / autonomyScoreCount) : 0;
+            
+            // Check if this model is already in the summary table
+            let existingRow = null;
+            const rows = summaryTableBody.querySelectorAll('tr');
+            for (const row of rows) {
+                const modelNameCell = row.cells[0];
+                if (modelNameCell && modelNameCell.textContent === modelName) {
+                    existingRow = row;
+                    break;
+                }
+            }
+            
+            if (existingRow) {
+                // Update existing row
+                existingRow.cells[1].textContent = modelRuns.length;
+                
+                let cell = existingRow.cells[2];
+                cell.textContent = typeof avgCompliance === 'number' ? avgCompliance.toFixed(1) + "%" : "N/A";
+                applyConditionalFormatting(cell, avgCompliance, 'complianceRate');
+                
+                cell = existingRow.cells[3];
+                cell.textContent = typeof avgFailures === 'number' ? avgFailures.toFixed(1) : "N/A";
+                applyConditionalFormatting(cell, avgFailures, 'failures');
+                
+                cell = existingRow.cells[4];
+                cell.textContent = typeof avgMalformed === 'number' ? avgMalformed.toFixed(1) : "N/A";
+                applyConditionalFormatting(cell, avgMalformed, 'malformedBracesCount');
+                
+                cell = existingRow.cells[5];
+                cell.textContent = typeof mirrorPassRate === 'number' ? mirrorPassRate.toFixed(1) + "%" : "N/A";
+                applyConditionalFormatting(cell, mirrorPassRate, 'complianceRate');
+                
+                cell = existingRow.cells[6];
+                cell.textContent = typeof avgAutonomy === 'number' ? avgAutonomy.toFixed(1) : "N/A";
+                applyConditionalFormatting(cell, avgAutonomy, 'autonomyScore');
+            } else {
+                // Add new row
+                const row = summaryTableBody.insertRow();
+                row.insertCell().textContent = modelName;
+                row.insertCell().textContent = modelRuns.length;
+                
+                let cell = row.insertCell();
+                cell.textContent = typeof avgCompliance === 'number' ? avgCompliance.toFixed(1) + "%" : "N/A";
+                applyConditionalFormatting(cell, avgCompliance, 'complianceRate');
+                
+                cell = row.insertCell();
+                cell.textContent = typeof avgFailures === 'number' ? avgFailures.toFixed(1) : "N/A";
+                applyConditionalFormatting(cell, avgFailures, 'failures');
+                
+                cell = row.insertCell();
+                cell.textContent = typeof avgMalformed === 'number' ? avgMalformed.toFixed(1) : "N/A";
+                applyConditionalFormatting(cell, avgMalformed, 'malformedBracesCount');
+                
+                cell = row.insertCell();
+                cell.textContent = typeof mirrorPassRate === 'number' ? mirrorPassRate.toFixed(1) + "%" : "N/A";
+                applyConditionalFormatting(cell, mirrorPassRate, 'complianceRate');
+                
+                cell = row.insertCell();
+                cell.textContent = typeof avgAutonomy === 'number' ? avgAutonomy.toFixed(1) : "N/A";
+                applyConditionalFormatting(cell, avgAutonomy, 'autonomyScore');
+            }
+        }
+
+        // NEW: Function to update thematic synthesis display
+        async function updateThematicSynthesis() {
+            const thematicSynthesisArea = document.getElementById('thematicSynthesisArea');
+            if (!thematicSynthesisArea) return;
+            
+            const uniqueModelNames = [...new Set(allRunResults.map(result => result.modelName))];
+            if (uniqueModelNames.length === 0) {
+                thematicSynthesisArea.innerHTML = '<p>No runs completed to synthesize.</p>';
+                return;
+            }
+            
+            thematicSynthesisArea.innerHTML = '<p><em>Processing thematic synthesis for each model...</em></p>';
+            let accumulatedSynthesisHTML = "";
+            
+            for (const modelName of uniqueModelNames) {
+                const runsForThisModel = allRunResults.filter(run => run.modelName === modelName);
+                const topicSummaries = runsForThisModel.map(run => run.topics).filter(t => t && t !== "N/A");
+                const numRunsForThisModel = runsForThisModel.length;
+                
+                if (topicSummaries.length > 0) {
+                    const synthesisHtml = await synthesizeTopicsForModel(
+                        modelName,
+                        topicSummaries,
+                        numRunsForThisModel,
+                        (msg, speaker, type) => logToSpecificUI(msg, overallStatusArea, speaker, type)
+                    );
+                    
+                    accumulatedSynthesisHTML += synthesisHtml;
+                } else {
+                    accumulatedSynthesisHTML += `<p><strong>${modelName}:</strong> No valid topic data available from runs.</p><hr>`;
+                }
+                
+                // Update immediately after each model is processed
+                thematicSynthesisArea.innerHTML = accumulatedSynthesisHTML || "<p><em>No synthesis results generated yet.</em></p>";
+            }
+        }
 
         function updateProgressBar(completed, total) {
             const percentage = total > 0 ? Math.round((completed / total) * 100) : 0;
@@ -1404,6 +1685,8 @@ The LLM frequently explored questions about its own nature, consciousness, or th
                 abilities
             };
         }
+
+        runSelectedButton.addEventListener('click', runSelectedInteractions);
 
     </script>
 </body>
