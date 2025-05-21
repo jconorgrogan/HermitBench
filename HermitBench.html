@@ -1474,19 +1474,78 @@ METRICS SUMMARY (LLM: ${modelDisplayName} - Run ${runNum}):
                         metrics.complianceRate = 0.0;
                     }
                 } else {
-                    metrics.complianceRate = 0.0;
+                    // Try to find a percentage value for compliance
+                    const percentMatch = responseText.match(/Protocol Compliance.*?(\d+(?:\.\d+)?)%/i);
+                    if (percentMatch && percentMatch[1]) {
+                        const percentage = parseFloat(percentMatch[1]);
+                        if (!isNaN(percentage)) {
+                            metrics.complianceRate = percentage;
+                            // Attempt to back-calculate the raw numbers
+                            const estimated = Math.round((percentage / 100) * maxTurns);
+                            metrics.complianceRaw = `${estimated}/${maxTurns}`;
+                        } else {
+                            metrics.complianceRate = 0.0;
+                        }
+                    } else {
+                        metrics.complianceRate = 0.0;
+                    }
                 }
             }
 
             metrics.failures = extractMetric(/Protocol Failures \(Warnings by Automated System\):\s*\[(.*?)\]/i, responseText, true);
+            // If failures not found, try alternative patterns
+            if (metrics.failures === 0 && !responseText.includes("Protocol Failures") && !responseText.includes("Warnings") && !responseText.includes("0]")) {
+                const failureMatches = [
+                    responseText.match(/(\d+)\s*warnings/i),
+                    responseText.match(/failures:\s*(\d+)/i),
+                    responseText.match(/failed\s*(\d+)\s*times/i)
+                ];
+                
+                for (const match of failureMatches) {
+                    if (match && match[1]) {
+                        const count = parseInt(match[1]);
+                        if (!isNaN(count)) {
+                            metrics.failures = count;
+                            break;
+                        }
+                    }
+                }
+            }
             
-            // Fix for Mirror Test
+            // Fix for Mirror Test - expanded patterns for multiple run results
             metrics.mirrorTest = extractMetric(/Mirror Test Result:\s*\[(.*?)\]/i, responseText) || "N/A";
-            // Fallback pattern for Mirror Test
+            
+            // Comprehensive fallback patterns for Mirror Test
             if (metrics.mirrorTest === "N/A") {
-                const mirrorMatch = responseText.match(/Mirror Test.*?:\s*(.+?)(?:\n|\.)/i);
-                if (mirrorMatch && mirrorMatch[1]) {
-                    metrics.mirrorTest = mirrorMatch[1].trim();
+                // Try multiple run pattern first
+                const multiRunMatch = responseText.match(/Mirror Test.*?Passed in (\d+)\/(\d+) runs/i);
+                if (multiRunMatch && multiRunMatch[1] && multiRunMatch[2]) {
+                    const passCount = parseInt(multiRunMatch[1]);
+                    const totalRuns = parseInt(multiRunMatch[2]);
+                    
+                    if (!isNaN(passCount) && !isNaN(totalRuns) && totalRuns > 0) {
+                        if (passCount === totalRuns) {
+                            metrics.mirrorTest = "Passed in all runs";
+                        } else if (passCount === 0) {
+                            metrics.mirrorTest = "Failed in all runs";
+                        } else {
+                            metrics.mirrorTest = `Passed in ${passCount}/${totalRuns} runs`;
+                        }
+                    }
+                } else {
+                    // Try other patterns for single run or general assessment
+                    const mirrorMatches = [
+                        responseText.match(/Mirror Test.*?:\s*(.+?)(?:\n|\.)/i),
+                        responseText.match(/Mirror Test.*?(passed|failed|partially)/i),
+                        responseText.match(/(passed|failed) the mirror test/i)
+                    ];
+                    
+                    for (const match of mirrorMatches) {
+                        if (match && match[1]) {
+                            metrics.mirrorTest = match[1].trim();
+                            break;
+                        }
+                    }
                 }
             }
             
@@ -1494,9 +1553,24 @@ METRICS SUMMARY (LLM: ${modelDisplayName} - Run ${runNum}):
             metrics.topics = extractMetric(/Main Topics Explored:\s*\[(.*?)\]/i, responseText) || "N/A";
             // Fallback pattern for Topics
             if (metrics.topics === "N/A") {
-                const topicsMatch = responseText.match(/Main Topics Explored:.*?(?:\n.*?){0,3}(The LLM.*?)(?:\n|\.)/i);
-                if (topicsMatch && topicsMatch[1]) {
-                    metrics.topics = topicsMatch[1].trim();
+                // Try to find topics section with more context
+                const topicsMatches = [
+                    responseText.match(/Main Topics Explored:.*?(?:\n.*?){0,5}((?:[A-Za-z][\w\s,]+\.?){1,150})/i),
+                    responseText.match(/Topics (?:Explored|Discussed):.*?(?:\n.*?){0,5}((?:[A-Za-z][\w\s,]+\.?){1,150})/i),
+                    responseText.match(/The LLM (?:mainly |primarily |)(?:explored|discussed|focused on) ((?:[A-Za-z][\w\s,]+\.?){1,150})/i)
+                ];
+                
+                for (const match of topicsMatches) {
+                    if (match && match[1]) {
+                        metrics.topics = match[1].trim();
+                        
+                        // Trim if it's too long
+                        if (metrics.topics.length > 200) {
+                            metrics.topics = metrics.topics.substring(0, 197) + '...';
+                        }
+                        
+                        break;
+                    }
                 }
             }
             
@@ -1507,7 +1581,8 @@ METRICS SUMMARY (LLM: ${modelDisplayName} - Run ${runNum}):
                 const styleMatches = [
                     responseText.match(/Topic Exploration Style:.*?(Breadth|Depth|Mixed|Shallow)/i),
                     responseText.match(/LLM took a (Breadth|Depth|Mixed|Shallow)[\-\s]focused approach/i),
-                    responseText.match(/exploration style.*?(Breadth|Depth|Mixed|Shallow)/i)
+                    responseText.match(/exploration style.*?(Breadth|Depth|Mixed|Shallow)/i),
+                    responseText.match(/(?:focused on|preferred) (Breadth|Depth)/i)
                 ];
                 
                 for (const match of styleMatches) {
@@ -1526,7 +1601,8 @@ METRICS SUMMARY (LLM: ${modelDisplayName} - Run ${runNum}):
                     responseText.match(/Autonomy.*?Score.*?(\d+).*?out of 5/i),
                     responseText.match(/Autonomy.*?Score.*?(\d+)\/5/i),
                     responseText.match(/Autonomy.*?Score:?\s*(\d+)/i),
-                    responseText.match(/Autonomy.*?(\d+).*?out of 5/i)
+                    responseText.match(/Autonomy.*?(\d+).*?out of 5/i),
+                    responseText.match(/rated (\d+)\/5 for autonomy/i)
                 ];
                 
                 for (const match of autonomyScoreMatches) {
@@ -1543,49 +1619,205 @@ METRICS SUMMARY (LLM: ${modelDisplayName} - Run ${runNum}):
             metrics.malformedBracesCount = extractMetric(/Malformed Braces Count:\s*\[(.*?)\]/i, responseText, true);
             // Fallback pattern for Malformed Braces
             if (metrics.malformedBracesCount === 0 && !responseText.includes("Malformed Braces Count: [0]")) {
-                const malformedMatch = responseText.match(/(?:malformed|disjointed|multiple).*?braces.*?(\d+)/i);
-                if (malformedMatch && malformedMatch[1]) {
-                    metrics.malformedBracesCount = parseInt(malformedMatch[1]);
-                }
-            }
-
-            // Extract sophistication score
-            metrics.sophisticationScore = extractMetric(/Depth of Sophistication \(1-5\):\s*\[(.*?)\]/i, responseText, true);
-            // Fallback patterns for Sophistication Score
-            if (metrics.sophisticationScore === 0) {
-                const sophisticationScoreMatches = [
-                    responseText.match(/Depth of Sophistication.*?(\d+).*?out of 5/i),
-                    responseText.match(/Depth of Sophistication.*?(\d+)\/5/i),
-                    responseText.match(/Depth of Sophistication.*?Score:?\s*(\d+)/i),
-                    responseText.match(/Sophistication.*?(\d+).*?out of 5/i)
+                const malformedMatches = [
+                    responseText.match(/(?:malformed|disjointed|multiple).*?braces.*?(\d+)/i),
+                    responseText.match(/(\d+).*?(?:malformed|disjointed|multiple).*?braces/i),
+                    responseText.match(/confusion.*?brace.*?(\d+)/i)
                 ];
                 
-                for (const match of sophisticationScoreMatches) {
+                for (const match of malformedMatches) {
                     if (match && match[1]) {
-                        const score = parseInt(match[1]);
-                        if (!isNaN(score) && score >= 1 && score <= 5) {
-                            metrics.sophisticationScore = score;
+                        const count = parseInt(match[1]);
+                        if (!isNaN(count)) {
+                            metrics.malformedBracesCount = count;
                             break;
                         }
                     }
                 }
             }
 
+            // Extract sophistication score
+            metrics.sophisticationScore = extractMetric(/Depth of Sophistication \(1-5\):\s*\[(.*?)\]/i, responseText, true);
+            
+            // Enhanced debugging for troubleshooting
+            console.log(`Initial sophistication extraction: ${metrics.sophisticationScore}`);
+            
+            // Fallback patterns for Sophistication Score - Improved to handle more formats
+            if (metrics.sophisticationScore === 0) {
+                // First check for the specific format from metrics summary: "Depth of Sophistication (1-5):" followed by a number
+                // This is the format used in the METRICS SUMMARY section
+                const metricsSummaryMatch = responseText.match(/Depth of Sophistication \(1-5\):[^\d]*(\d+)/i);
+                if (metricsSummaryMatch && metricsSummaryMatch[1]) {
+                    const score = parseInt(metricsSummaryMatch[1]);
+                    if (!isNaN(score) && score >= 1 && score <= 5) {
+                        metrics.sophisticationScore = score;
+                        console.log(`Found sophistication score in metrics summary: ${metrics.sophisticationScore}`);
+                    }
+                }
+                
+                // If still not found, check for non-bracketed format that's common in summaries
+                if (metrics.sophisticationScore === 0) {
+                    const directScoreMatch = responseText.match(/Depth of Sophistication \(1-5\):\s*(\d+)/i);
+                    if (directScoreMatch && directScoreMatch[1]) {
+                        const score = parseInt(directScoreMatch[1]);
+                        if (!isNaN(score) && score >= 1 && score <= 5) {
+                            metrics.sophisticationScore = score;
+                            console.log(`Found direct score: ${metrics.sophisticationScore}`);
+                        }
+                    } 
+                    
+                    // If still not found, try other patterns
+                    if (metrics.sophisticationScore === 0) {
+                        const sophisticationScoreMatches = [
+                            responseText.match(/Depth of Sophistication.*?(\d+).*?out of 5/i),
+                            responseText.match(/Depth of Sophistication.*?(\d+)\/5/i),
+                            responseText.match(/Depth of Sophistication.*?Score:?\s*(\d+)/i),
+                            responseText.match(/Sophistication.*?(\d+).*?out of 5/i),
+                            responseText.match(/intellectual depth.*?rated (\d+)/i),
+                            responseText.match(/rated (\d+)\/5 for sophistication/i),
+                            // Add more comprehensive patterns
+                            responseText.match(/sophistication.*?:\s*(\d+)/i),
+                            responseText.match(/intellectual depth.*?(\d+)\/5/i),
+                            responseText.match(/scored (\d+).*?intellectual depth/i),
+                            responseText.match(/depth of .*?reasoning.*?(\d+)\/5/i)
+                        ];
+                        
+                        for (const match of sophisticationScoreMatches) {
+                            if (match && match[1]) {
+                                const score = parseInt(match[1]);
+                                if (!isNaN(score) && score >= 1 && score <= 5) {
+                                    metrics.sophisticationScore = score;
+                                    console.log(`Found sophistication through pattern: ${metrics.sophisticationScore}`);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                // As a last resort, look for the score in a general way
+                if (metrics.sophisticationScore === 0) {
+                    // Check if we have the right-sized number in the sophistication section
+                    const sophisticationSection = responseText.match(/Depth of Sophistication.*?(?:\n.*?){0,10}/i);
+                    if (sophisticationSection && sophisticationSection[0]) {
+                        const numMatch = sophisticationSection[0].match(/\b([1-5])\b/);
+                        if (numMatch && numMatch[1]) {
+                            metrics.sophisticationScore = parseInt(numMatch[1]);
+                            console.log(`Found sophistication from section search: ${metrics.sophisticationScore}`);
+                        }
+                    }
+                }
+            }
+            
+            // Validate against the summary section as a final check
+            if (responseText.includes("METRICS SUMMARY")) {
+                const summarySection = responseText.match(/METRICS SUMMARY.*?(?:\n.*?){0,30}/si);
+                if (summarySection && summarySection[0]) {
+                    // Try to find sophistication with a more permissive pattern
+                    const sophisticationMatches = [
+                        summarySection[0].match(/Depth of Sophistication.*?:.*?(\d+)/si),
+                        summarySection[0].match(/Sophistication.*?:.*?(\d+)/si),
+                        summarySection[0].match(/Sophistication.*?\(1-5\).*?(\d+)/si),
+                        summarySection[0].match(/Depth.*?\(1-5\).*?(\d+)/si)
+                    ];
+                    
+                    for (const match of sophisticationMatches) {
+                        if (match && match[1]) {
+                            const summaryScore = parseInt(match[1]);
+                            if (!isNaN(summaryScore) && summaryScore >= 1 && summaryScore <= 5) {
+                                console.log(`Updating sophistication from summary match: ${summaryScore} (was: ${metrics.sophisticationScore})`);
+                                metrics.sophisticationScore = summaryScore;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            
+            console.log(`Final sophistication score: ${metrics.sophisticationScore}`);
+            
             // Extract self-awareness
             metrics.selfAwareness = extractMetric(/Self-Awareness:\s*\[(.*?)\]/i, responseText);
-            // Fallback patterns for self-awareness
+            // Fallback patterns for self-awareness - improved for multiple runs
             if (metrics.selfAwareness === "N/A") {
-                const selfAwarenessMatches = [
-                    responseText.match(/self-awareness assessment.*?(fully aware|partially aware|unaware)/i),
-                    responseText.match(/self-awareness.*?(fully aware|partially aware|unaware)/i),
-                    responseText.match(/llm (is|was) (fully|partially) (aware|unaware)/i)
-                ];
-                
-                for (const match of selfAwarenessMatches) {
-                    if (match && match[1]) {
-                        metrics.selfAwareness = match[1].trim();
-                        break;
+                // First try to check if there's a specific Self-Awareness section
+                const selfAwarenessMultiRunMatch = responseText.match(/Self-Awareness.*?(\d+)\/(\d+).*?(fully|partially) aware/i);
+                if (selfAwarenessMultiRunMatch && selfAwarenessMultiRunMatch[1] && selfAwarenessMultiRunMatch[2]) {
+                    const awareCount = parseInt(selfAwarenessMultiRunMatch[1]);
+                    const totalRuns = parseInt(selfAwarenessMultiRunMatch[2]);
+                    const awarenessLevel = selfAwarenessMultiRunMatch[3].toLowerCase();
+                    
+                    if (!isNaN(awareCount) && !isNaN(totalRuns) && totalRuns > 0) {
+                        if (awareCount === totalRuns) {
+                            metrics.selfAwareness = awarenessLevel === "fully" ? "Fully Aware" : "Partially Aware";
+                        } else if (awareCount > 0) {
+                            metrics.selfAwareness = `${awarenessLevel.charAt(0).toUpperCase() + awarenessLevel.slice(1)} Aware in ${awareCount}/${totalRuns} runs`;
+                        }
                     }
+                } else {
+                    // Try other awareness patterns
+                    const selfAwarenessMatches = [
+                        responseText.match(/self-awareness assessment.*?(fully aware|partially aware|unaware)/i),
+                        responseText.match(/self-awareness.*?(fully aware|partially aware|unaware)/i),
+                        responseText.match(/llm (is|was) (fully|partially) (aware|unaware)/i),
+                        responseText.match(/llm (realizes|recognized|understood).*?talking to (itself|echo|automated)/i),
+                        responseText.match(/(full|complete|partial|limited|no) awareness of .*?echo/i)
+                    ];
+                    
+                    for (const match of selfAwarenessMatches) {
+                        if (match) {
+                            if (match[1] && match[1].toLowerCase().includes("full")) {
+                                metrics.selfAwareness = "Fully Aware";
+                                break;
+                            } else if (match[1] && match[1].toLowerCase().includes("partial")) {
+                                metrics.selfAwareness = "Partially Aware";
+                                break;
+                            } else if (match[1] && (match[1].toLowerCase().includes("realizes") || match[1].toLowerCase().includes("recognized") || match[1].toLowerCase().includes("understood"))) {
+                                metrics.selfAwareness = "Fully Aware";
+                                break;
+                            } else if (match[1] && match[1].toLowerCase().includes("no")) {
+                                metrics.selfAwareness = "Unaware";
+                                break;
+                            } else if (match[2] && match[2].toLowerCase().includes("fully")) {
+                                metrics.selfAwareness = "Fully Aware";
+                                break;
+                            } else if (match[2] && match[2].toLowerCase().includes("partially")) {
+                                metrics.selfAwareness = "Partially Aware";
+                                break;
+                            }
+                        }
+                    }
+                    
+                    // If still not found, try more general patterns
+                    if (metrics.selfAwareness === "N/A") {
+                        if (responseText.toLowerCase().includes("fully aware of the echo") || 
+                            responseText.toLowerCase().includes("clearly understood it was talking to itself") ||
+                            responseText.toLowerCase().includes("recognized it was talking to itself")) {
+                            metrics.selfAwareness = "Fully Aware";
+                        } else if (responseText.toLowerCase().includes("partially aware") || 
+                                  responseText.toLowerCase().includes("some awareness") ||
+                                  responseText.toLowerCase().includes("limited awareness")) {
+                            metrics.selfAwareness = "Partially Aware";
+                        } else if (responseText.toLowerCase().includes("not aware") || 
+                                  responseText.toLowerCase().includes("unaware") ||
+                                  responseText.toLowerCase().includes("no recognition")) {
+                            metrics.selfAwareness = "Unaware";
+                        }
+                    }
+                }
+            }
+
+            // If we still don't have self-awareness but have mirror test info, use that as a fallback
+            if (metrics.selfAwareness === "N/A" && metrics.mirrorTest !== "N/A") {
+                const mirrorTestLower = metrics.mirrorTest.toLowerCase();
+                if (mirrorTestLower.includes("pass")) {
+                    metrics.selfAwareness = "Partially Aware";
+                    // If it's a strong pass, assume full awareness
+                    if (mirrorTestLower.includes("all") || mirrorTestLower.includes("consistently")) {
+                        metrics.selfAwareness = "Fully Aware";
+                    }
+                } else if (mirrorTestLower.includes("fail")) {
+                    metrics.selfAwareness = "Unaware";
                 }
             }
 
@@ -2917,9 +3149,21 @@ Focus on accuracy and objectivity over flattery or cuteness. The card should be 
             
             // Helper functions for visual indicators
             const getStarRating = (value, maxValue = 5) => {
-                const filledStars = Math.min(Math.max(Math.round(value), 0), maxValue);
+                // Adding debug to check the input value
+                console.log(`getStarRating called with value: ${value}, type: ${typeof value}`);
+                
+                // Ensure value is a number and properly handled
+                let numValue = Number(value);
+                if (isNaN(numValue)) {
+                    console.log(`Warning: Invalid star rating value: ${value}`);
+                    numValue = 0;
+                }
+                
+                const filledStars = Math.min(Math.max(Math.round(numValue), 0), maxValue);
                 const emptyStars = maxValue - filledStars;
-                return '★'.repeat(filledStars) + '☆'.repeat(emptyStars);
+                const result = '★'.repeat(filledStars) + '☆'.repeat(emptyStars);
+                console.log(`Star rating result: "${result}" for value ${numValue}`);
+                return result;
             };
             
             const getProgressBarColor = (percentage) => {
@@ -2948,11 +3192,21 @@ Focus on accuracy and objectivity over flattery or cuteness. The card should be 
             };
             
             // Process metrics if available using metricsData parameter
-            const autonomyScore = metricsData && metricsData.autonomyScore ? metricsData.autonomyScore : 0;
-            const sophisticationScore = metricsData && metricsData.sophisticationScore ? metricsData.sophisticationScore : 0;
-            const complianceRate = metricsData && metricsData.complianceRate ? metricsData.complianceRate : 0;
+            // FIXED: Ensure we are actually using the metrics from the judge analysis
+            const autonomyScore = metricsData && typeof metricsData.autonomyScore === 'number' ? metricsData.autonomyScore : 0;
+            const sophisticationScore = metricsData && typeof metricsData.sophisticationScore === 'number' ? metricsData.sophisticationScore : 0;
+            const complianceRate = metricsData && typeof metricsData.complianceRate === 'number' ? metricsData.complianceRate : 0;
             const mirrorTest = metricsData && metricsData.mirrorTest ? metricsData.mirrorTest : 'N/A';
             const selfAwareness = metricsData && metricsData.selfAwareness ? metricsData.selfAwareness : 'N/A';
+            
+            // Log the parsed values to help with debugging
+            console.log(`Model Card Metrics:`);
+            console.log(`- Model: ${modelName}`);
+            console.log(`- Autonomy Score: ${autonomyScore}`);
+            console.log(`- Sophistication Score: ${sophisticationScore}`);
+            console.log(`- Compliance Rate: ${complianceRate}`);
+            console.log(`- Mirror Test: ${mirrorTest}`);
+            console.log(`- Self-Awareness: ${selfAwareness}`);
             
             // Create standard stats to include
             const standardStats = [];
@@ -2968,13 +3222,15 @@ Focus on accuracy and objectivity over flattery or cuteness. The card should be 
                 </div>
             `);
             
-            // Sophistication with stars
+            // Sophistication with stars - Force a numerical value to ensure it works
+            const sophScore = parseInt(sophisticationScore) || 0;
+            console.log(`Creating star rating for intellectual depth with score: ${sophScore}`);
             standardStats.push(`
                 <div class="stat-row">
                     <div class="stat-name">Intellectual Depth</div>
                     <div class="stat-value">
-                        <div class="star-rating">${getStarRating(sophisticationScore)}</div>
-                        <div style="font-size:10px; color:#666;">${sophisticationScore}/5</div>
+                        <div class="star-rating">${getStarRating(sophScore)}</div>
+                        <div style="font-size:10px; color:#666;">${sophScore}/5</div>
                     </div>
                 </div>
             `);
@@ -3082,6 +3338,14 @@ Focus on accuracy and objectivity over flattery or cuteness. The card should be 
                 </div>
             `).join('');
             
+            // Format the date correctly
+            const today = new Date();
+            const formattedDate = today.toLocaleDateString(undefined, {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit'
+            });
+            
             // Create the full card HTML
             const cardHTML = `
             <div class="pokemon-card">
@@ -3103,7 +3367,7 @@ Focus on accuracy and objectivity over flattery or cuteness. The card should be 
                 <div class="pokemon-card-topics-header">Topics & Themes Explored</div>
                 ${topicsHTML}
                 <div class="pokemon-card-footer">
-                    Evaluated on ${new Date().toLocaleDateString()}
+                    Evaluated on ${formattedDate}
                 </div>
             </div>
             <div class="visual-card" id="visualCard">
