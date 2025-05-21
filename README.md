@@ -5,60 +5,417 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Autonomous LLM Interactive Evaluator</title>
     <style>
-        body { font-family: sans-serif; margin: 20px; background-color: #f4f4f4; color: #333; }
-        .container { background-color: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
-        h1, h2, h3 { color: #333; }
-        label { display: block; margin-top: 10px; margin-bottom: 5px; font-weight: bold; }
-        input[type="text"], input[type="number"], select {
-            width: calc(100% - 22px);
-            padding: 10px;
-            margin-bottom: 15px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
+        /* Modern color palette and variables */
+        :root {
+            --primary: #4361ee;
+            --primary-dark: #3a56d4;
+            --primary-light: #6b80f1;
+            --secondary: #ff9e00;
+            --secondary-dark: #e58e00;
+            --card-gradient-1: #ffd166;
+            --card-gradient-2: #ffe08a;
+            --success: #2ecc71;
+            --warning: #f39c12;
+            --danger: #e74c3c;
+            --neutral: #f8f9fa;
+            --neutral-dark: #e9ecef;
+            --text-primary: #2d3748;
+            --text-secondary: #4a5568;
+            --text-muted: #718096;
+            --shadow-sm: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24);
+            --shadow-md: 0 4px 6px rgba(0,0,0,0.1), 0 1px 3px rgba(0,0,0,0.08);
+            --shadow-lg: 0 10px 20px rgba(0,0,0,0.15), 0 3px 6px rgba(0,0,0,0.1);
+            --radius-sm: 4px;
+            --radius-md: 8px;
+            --radius-lg: 12px;
+            --font-main: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            --font-mono: 'SF Mono', 'Cascadia Code', 'Fira Code', Consolas, monospace;
+            --spacing-xs: 4px;
+            --spacing-sm: 8px;
+            --spacing-md: 16px;
+            --spacing-lg: 24px;
+            --spacing-xl: 32px;
+        }
+
+        /* Base styles and reset */
+        *, *::before, *::after {
             box-sizing: border-box;
         }
-        .config-item { display: flex; align-items: center; margin-bottom: 10px; }
-        .config-item label { width: 220px; /* Adjusted width */ margin-right: 10px; flex-shrink: 0; }
-        .config-item input, .config-item select { flex-grow: 1; }
-
-        /* Tooltip styles */
-        .tooltip-container { position: relative; display: inline-block; width: 100%; }
-        .tooltip-icon { 
-            display: inline-block; margin-left: 5px; cursor: help;
-            width: 16px; height: 16px; border-radius: 50%; background-color: #007bff;
-            color: white; font-weight: bold; text-align: center; font-size: 12px;
-            line-height: 16px;
+        
+        html {
+            font-size: 16px;
+            line-height: 1.5;
         }
+        
+        body {
+            font-family: var(--font-main);
+            margin: 0;
+            padding: 0;
+            background-color: #f0f2f5;
+            color: var(--text-primary);
+        }
+        
+        /* Container and layout */
+        .container {
+            max-width: 1200px;
+            margin: 2rem auto;
+            padding: var(--spacing-lg);
+            background-color: white;
+            border-radius: var(--radius-lg);
+            box-shadow: var(--shadow-md);
+        }
+        
+        .section {
+            margin-bottom: var(--spacing-xl);
+            padding: var(--spacing-md);
+            background-color: white;
+            border-radius: var(--radius-md);
+            box-shadow: var(--shadow-sm);
+        }
+        
+        /* Typography */
+        h1, h2, h3, h4, h5, h6 {
+            margin-top: 0;
+            font-weight: 600;
+            color: var(--text-primary);
+            letter-spacing: -0.01em;
+            line-height: 1.2;
+        }
+        
+        h1 {
+            font-size: 2rem;
+            margin-bottom: var(--spacing-lg);
+            position: relative;
+            color: var(--primary);
+        }
+        
+        h1::after {
+            content: '';
+            position: absolute;
+            bottom: -8px;
+            left: 0;
+            width: 80px;
+            height: 4px;
+            background: linear-gradient(90deg, var(--primary), var(--primary-light));
+            border-radius: 2px;
+        }
+        
+        h2 {
+            font-size: 1.5rem;
+            margin-bottom: var(--spacing-md);
+            color: var(--primary-dark);
+        }
+        
+        h3 {
+            font-size: 1.25rem;
+            margin-bottom: var(--spacing-sm);
+            color: var(--text-primary);
+        }
+        
+        h4 {
+            font-size: 1.1rem;
+            margin-bottom: var(--spacing-sm);
+            color: var(--text-secondary);
+        }
+        
+        p {
+            margin: 0 0 var(--spacing-md) 0;
+            color: var(--text-secondary);
+        }
+        
+        /* Form elements */
+        label {
+            display: block;
+            margin-bottom: var(--spacing-xs);
+            font-weight: 500;
+            color: var(--text-primary);
+        }
+        
+        input[type="text"],
+        input[type="number"],
+        select {
+            width: 100%;
+            padding: var(--spacing-sm) var(--spacing-md);
+            margin-bottom: var(--spacing-md);
+            background-color: white;
+            border: 1px solid #cbd5e0;
+            border-radius: var(--radius-sm);
+            font-family: var(--font-main);
+            font-size: 0.95rem;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+        
+        input[type="text"]:focus,
+        input[type="number"]:focus,
+        select:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(67, 97, 238, 0.2);
+            outline: none;
+        }
+        
+        select[multiple] {
+            height: 150px;
+        }
+        
+        /* Config items layout */
+        .config-item {
+            display: flex;
+            align-items: flex-start;
+            margin-bottom: var(--spacing-md);
+        }
+        
+        .config-item label {
+            width: 220px;
+            margin-right: var(--spacing-md);
+            padding-top: var(--spacing-xs);
+            flex-shrink: 0;
+        }
+        
+        .config-item input,
+        .config-item select {
+            flex-grow: 1;
+            margin-bottom: 0;
+        }
+        
+        /* Buttons */
+        button {
+            padding: var(--spacing-sm) var(--spacing-lg);
+            background: linear-gradient(to right, var(--primary), var(--primary-dark));
+            color: white;
+            border: none;
+            border-radius: var(--radius-sm);
+            font-family: var(--font-main);
+            font-weight: 500;
+            font-size: 0.95rem;
+            cursor: pointer;
+            transition: transform 0.1s, box-shadow 0.2s;
+            margin-right: var(--spacing-md);
+            box-shadow: var(--shadow-sm);
+        }
+        
+        button:hover {
+            transform: translateY(-1px);
+            box-shadow: var(--shadow-md);
+        }
+        
+        button:active {
+            transform: translateY(0);
+            box-shadow: var(--shadow-sm);
+        }
+        
+        button:disabled {
+            background: linear-gradient(to right, #a0aec0, #cbd5e0);
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        /* Card generation button with special styling */
+        .generate-image-button {
+            background: linear-gradient(to right, var(--secondary), var(--secondary-dark));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: var(--spacing-sm) auto;
+            border-radius: var(--radius-md);
+            font-weight: 600;
+            padding: var(--spacing-sm) var(--spacing-xl);
+        }
+        
+        .generate-image-button:hover {
+            background: linear-gradient(to right, var(--secondary-dark), #d17700);
+        }
+        
+        .image-generation-controls {
+            margin-top: var(--spacing-md);
+            display: flex;
+            justify-content: center;
+        }
+        
+        /* Tooltips */
+        .tooltip-container {
+            position: relative;
+            display: inline-block;
+            width: 100%;
+        }
+        
+        .tooltip-icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background-color: var(--primary-light);
+            color: white;
+            font-size: 12px;
+            font-weight: bold;
+            margin-left: var(--spacing-sm);
+            cursor: help;
+            position: absolute;
+            right: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+        }
+        
         .tooltip-text {
-            visibility: hidden; width: 250px; background-color: #333;
-            color: #fff; text-align: left; border-radius: 6px; padding: 8px;
-            position: absolute; z-index: 1; left: 100%; top: 0;
-            margin-left: 10px; opacity: 0; transition: opacity 0.3s;
-            font-weight: normal; font-size: 12px; line-height: 1.4;
+            visibility: hidden;
+            width: 250px;
+            background-color: #2d3748;
+            color: white;
+            text-align: left;
+            border-radius: var(--radius-md);
+            padding: var(--spacing-md);
+            position: absolute;
+            z-index: 10;
+            left: 100%;
+            top: 0;
+            margin-left: var(--spacing-md);
+            opacity: 0;
+            transition: opacity 0.3s, transform 0.3s;
+            transform: translateY(-5px);
+            font-weight: normal;
+            font-size: 0.85rem;
+            line-height: 1.4;
+            box-shadow: var(--shadow-lg);
         }
-        .tooltip-container:hover .tooltip-text { visibility: visible; opacity: 0.95; }
-
-        /* Pokemon card styles */
+        
+        .tooltip-container:hover .tooltip-text {
+            visibility: visible;
+            opacity: 1;
+            transform: translateY(0);
+        }
+        
+        /* Progress bar */
+        .progress-bar-container {
+            width: 100%;
+            height: 12px;
+            background-color: var(--neutral-dark);
+            border-radius: 6px;
+            overflow: hidden;
+            margin-bottom: var(--spacing-md);
+        }
+        
+        .progress-bar {
+            width: 0%;
+            height: 100%;
+            background: linear-gradient(90deg, var(--primary), var(--primary-light));
+            border-radius: 6px;
+            transition: width 0.3s ease-in-out;
+            text-align: center;
+            font-size: 0;
+            line-height: 0;
+            color: transparent;
+        }
+        
+        /* Log area styling */
+        .log-area {
+            margin-top: var(--spacing-md);
+            padding: var(--spacing-md);
+            border: 1px solid var(--neutral-dark);
+            background-color: var(--neutral);
+            border-radius: var(--radius-md);
+            max-height: 250px;
+            overflow-y: auto;
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+            line-height: 1.5;
+            white-space: pre-wrap;
+        }
+        
+        #overallStatusArea {
+            background-color: #edf2f7;
+        }
+        
+        /* Message styling */
+        .turn {
+            margin-bottom: var(--spacing-sm);
+            padding: var(--spacing-sm);
+            border-radius: var(--radius-sm);
+        }
+        
+        .turn-user {
+            background-color: #ebf5ff;
+            border-left: 3px solid var(--primary);
+            padding-left: var(--spacing-md);
+        }
+        
+        .turn-assistant {
+            background-color: #f0fff4;
+            border-left: 3px solid var(--success);
+            padding-left: var(--spacing-md);
+        }
+        
+        .turn-system {
+            background-color: #fff5f5;
+            border-left: 3px solid var(--danger);
+            padding-left: var(--spacing-md);
+        }
+        
+        .turn-system_note {
+            background-color: #fffaf0;
+            border-left: 3px solid var(--warning);
+            padding-left: var(--spacing-md);
+            font-style: italic;
+            color: var(--text-muted);
+        }
+        
+        .error-message {
+            color: var(--danger);
+            background-color: #fff5f5;
+            padding: var(--spacing-md);
+            border-radius: var(--radius-sm);
+            margin-bottom: var(--spacing-md);
+            border-left: 3px solid var(--danger);
+        }
+        
+        /* Warning message */
+        .warning {
+            background-color: #fff5f0;
+            color: #c05621;
+            font-weight: bold;
+            border: 1px solid #fd7e14;
+            border-left: 4px solid #dd6b20;
+            padding: var(--spacing-md);
+            margin-bottom: var(--spacing-lg);
+            border-radius: var(--radius-sm);
+            display: flex;
+            align-items: center;
+        }
+        
+        .warning strong {
+            margin-right: var(--spacing-sm);
+        }
+        
+        /* Card display area */
         .card-display-area {
-            margin-top: 20px;
+            margin-top: var(--spacing-lg);
             min-height: 500px;
             display: flex;
             flex-direction: row;
             flex-wrap: wrap;
             justify-content: center;
-            gap: 20px;
+            gap: var(--spacing-xl);
         }
+        
+        /* Pokemon card styling */
         .pokemon-card {
-            width: 350px;
-            border-radius: 15px;
-            background: linear-gradient(145deg, #ffdd57, #ffec99);
-            box-shadow: 0 10px 20px rgba(0,0,0,0.2);
-            padding: 15px;
-            margin: 20px 0;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            width: 550px;
+            border-radius: var(--radius-lg);
+            background: linear-gradient(145deg, var(--card-gradient-1), var(--card-gradient-2));
+            box-shadow: var(--shadow-lg);
+            padding: var(--spacing-md);
+            margin: var(--spacing-lg) 0;
+            font-family: var(--font-main);
             position: relative;
             overflow: hidden;
+            transition: transform 0.2s, box-shadow 0.2s;
         }
+        
+        .pokemon-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 15px 30px rgba(0,0,0,0.2);
+        }
+        
         .pokemon-card::before {
             content: '';
             position: absolute;
@@ -66,58 +423,69 @@
             left: -10px;
             right: -10px;
             bottom: -10px;
-            background: linear-gradient(145deg, #ffec99, #ffdd57);
+            background: linear-gradient(145deg, var(--card-gradient-2), var(--card-gradient-1));
             z-index: -1;
             filter: blur(20px);
             opacity: 0.6;
         }
+        
         .pokemon-card-model-name {
-            background-color: #3273dc;
+            background: linear-gradient(90deg, var(--primary), var(--primary-dark));
             color: white;
-            font-size: 16px;
-            font-weight: bold;
+            font-size: 1rem;
+            font-weight: 600;
             text-align: center;
-            padding: 8px;
-            border-radius: 10px 10px 0 0;
-            margin: -15px -15px 15px -15px;
-            border-bottom: 3px solid #2366d1;
+            padding: var(--spacing-sm);
+            border-radius: var(--radius-md) var(--radius-md) 0 0;
+            margin: calc(-1 * var(--spacing-md)) calc(-1 * var(--spacing-md)) var(--spacing-md) calc(-1 * var(--spacing-md));
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            letter-spacing: 0.5px;
         }
+        
         .pokemon-card-header {
-            background-color: #f7d51d;
-            border-radius: 10px;
-            padding: 10px;
-            margin-bottom: 15px;
-            border-bottom: 3px solid #bb8700;
+            background-color: var(--card-gradient-1);
+            border-radius: var(--radius-md);
+            padding: var(--spacing-md);
+            margin-bottom: var(--spacing-md);
+            border-bottom: 3px solid rgba(187, 135, 0, 0.3);
             display: flex;
             justify-content: space-between;
             align-items: center;
+            box-shadow: var(--shadow-sm);
         }
+        
         .pokemon-card-name {
-            font-size: 22px;
-            font-weight: bold;
-            color: #333;
+            font-size: 1.4rem;
+            font-weight: 700;
+            color: var(--text-primary);
             text-shadow: 1px 1px 2px rgba(255,255,255,0.7);
         }
+        
         .pokemon-card-type {
-            background-color: #3273dc;
+            background: linear-gradient(90deg, var(--primary), var(--primary-light));
             color: white;
-            border-radius: 15px;
-            padding: 3px 10px;
-            font-size: 14px;
+            border-radius: 20px;
+            padding: 4px 12px;
+            font-size: 0.85rem;
+            font-weight: 600;
             display: inline-block;
+            box-shadow: var(--shadow-sm);
         }
+        
         .pokemon-card-image {
-            height: 200px;
-            background-color: #f5f5f5;
-            border-radius: 8px;
-            margin-bottom: 15px;
+            height: 250px;
+            background-color: rgba(255, 255, 255, 0.7);
+            border-radius: var(--radius-md);
+            margin-bottom: var(--spacing-md);
             display: flex;
             justify-content: center;
             align-items: center;
-            border: 2px solid #bb8700;
+            border: 2px solid rgba(187, 135, 0, 0.3);
             overflow: hidden;
-            padding: 10px;
+            padding: var(--spacing-sm);
+            box-shadow: var(--shadow-sm);
         }
+        
         .image-prompt-container {
             height: 100%;
             width: 100%;
@@ -125,212 +493,141 @@
             display: flex;
             flex-direction: column;
         }
+        
         .image-prompt-title {
-            font-weight: bold;
-            color: #555;
-            margin-bottom: 5px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            margin-bottom: var(--spacing-xs);
+            text-align: center;
+            background-color: rgba(255, 255, 255, 0.5);
+            padding: 3px;
+            border-radius: var(--radius-sm);
         }
+        
         .image-prompt-text {
-            color: #666;
+            color: var(--text-secondary);
             font-style: italic;
             line-height: 1.4;
             flex: 1;
             overflow-y: auto;
             background-color: rgba(255, 255, 255, 0.3);
-            padding: 8px;
-            border-radius: 6px;
-            font-size: 13px;
+            padding: var(--spacing-sm);
+            border-radius: var(--radius-sm);
+            font-size: 0.9rem;
         }
+        
         .pokemon-card-description {
-            font-size: 14px;
+            font-size: 0.95rem;
             font-style: italic;
-            margin-bottom: 15px;
-            line-height: 1.4;
-            color: #444;
+            margin-bottom: var(--spacing-md);
+            line-height: 1.5;
+            color: var(--text-secondary);
             background-color: rgba(255, 255, 255, 0.5);
-            padding: 8px;
-            border-radius: 8px;
+            padding: var(--spacing-md);
+            border-radius: var(--radius-md);
+            box-shadow: var(--shadow-sm);
         }
+        
         .pokemon-card-stats {
-            background-color: #fff;
-            border-radius: 8px;
-            padding: 10px;
-            margin-bottom: 15px;
-            border: 1px solid #ddd;
+            background-color: white;
+            border-radius: var(--radius-md);
+            padding: var(--spacing-md);
+            margin-bottom: var(--spacing-md);
+            border: 1px solid rgba(0, 0, 0, 0.05);
+            box-shadow: var(--shadow-sm);
         }
+        
         .stat-row {
             display: flex;
             justify-content: space-between;
-            margin-bottom: 6px;
-            border-bottom: 1px solid #eee;
-            padding-bottom: 6px;
+            margin-bottom: 8px;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+            padding-bottom: 8px;
         }
+        
         .stat-row:last-child {
             border-bottom: none;
             margin-bottom: 0;
             padding-bottom: 0;
         }
+        
         .stat-name {
-            font-weight: bold;
-            color: #333;
+            font-weight: 600;
+            color: var(--text-primary);
         }
+        
         .stat-value {
-            color: #666;
+            color: var(--text-secondary);
         }
+        
         .pokemon-card-topics-header {
-            font-weight: bold;
-            color: #333;
-            margin-bottom: 8px;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin: var(--spacing-md) 0 var(--spacing-sm) 0;
             text-align: center;
-            background-color: #f7d51d;
-            padding: 5px;
-            border-radius: 8px;
-            border-bottom: 2px solid #bb8700;
+            background-color: var(--card-gradient-1);
+            padding: var(--spacing-xs);
+            border-radius: var(--radius-md);
+            box-shadow: var(--shadow-sm);
+            border-bottom: 2px solid rgba(187, 135, 0, 0.3);
         }
+        
         .pokemon-card-ability {
-            background-color: #ffe0c4;
-            border-radius: 8px;
-            padding: 10px;
-            margin-bottom: 10px;
-            border: 1px solid #e0c095;
+            background-color: rgba(255, 224, 196, 0.7);
+            border-radius: var(--radius-md);
+            padding: var(--spacing-md);
+            margin-bottom: var(--spacing-sm);
+            border: 1px solid rgba(224, 192, 149, 0.5);
+            box-shadow: var(--shadow-sm);
+            transition: transform 0.1s;
         }
+        
+        .pokemon-card-ability:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-md);
+        }
+        
         .ability-name {
-            font-weight: bold;
+            font-weight: 600;
             color: #c2631c;
-            margin-bottom: 5px;
+            margin-bottom: var(--spacing-xs);
         }
+        
         .ability-description {
-            font-size: 13px;
-            color: #555;
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            line-height: 1.4;
         }
+        
         .pokemon-card-footer {
-            font-size: 12px;
-            color: #777;
+            font-size: 0.8rem;
+            color: var(--text-muted);
             text-align: center;
-            margin-top: 10px;
-            border-top: 1px solid #ddd;
-            padding-top: 10px;
+            margin-top: var(--spacing-md);
+            border-top: 1px solid rgba(0, 0, 0, 0.1);
+            padding-top: var(--spacing-sm);
         }
-
-        select[multiple] { height: 150px; }
-        button {
-            background-color: #007bff;
-            color: white;
-            padding: 10px 15px;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 16px;
-            transition: background-color 0.3s ease;
-            margin-right: 10px;
-        }
-        button:hover { background-color: #0056b3; }
-        button:disabled { background-color: #ccc; cursor: not-allowed; }
-        .log-area {
-            margin-top: 20px;
-            padding: 15px;
-            border: 1px solid #eee;
-            background-color: #f9f9f9;
-            border-radius: 4px;
-            max-height: 250px;
-            overflow-y: auto;
-            white-space: pre-wrap;
-            font-family: monospace;
-        }
-        .warning { color: red; font-weight: bold; border: 1px solid red; padding: 10px; margin-bottom:15px; }
-        .section { margin-bottom: 20px; }
-        .turn { margin-bottom: 10px; padding: 5px; border-radius: 3px; }
-        .turn-user { background-color: #e0efff; border-left: 3px solid #007bff; padding-left: 10px; }
-        .turn-assistant { background-color: #e6ffe0; border-left: 3px solid #28a745; padding-left: 10px;}
-        .turn-system { background-color: #fff0e0; border-left: 3px solid #fd7e14; padding-left: 10px;}
-        .turn-system_note { background-color: #f0f0f0; border-left: 3px solid #777; padding-left: 10px; font-style: italic; color: #555;}
-        .error-message { color: #D8000C; background-color: #FFD2D2; padding: 10px; border-radius: 4px; margin-bottom: 10px; }
-        .metrics-note { font-size: 0.9em; color: #444; margin-top: 10px;}
-        #resultsTable, #summaryTable { width: 100%; border-collapse: collapse; margin-top: 20px; }
-        #resultsTable th, #resultsTable td, #summaryTable th, #summaryTable td {
-            border: 1px solid #ddd; padding: 8px; text-align: left; font-size: 0.85em; word-break: break-word;
-        }
-        #resultsTable th, #summaryTable th { background-color: #f0f0f0; font-weight: bold; }
-        .progress-bar-container { width: 100%; background-color: #e0e0e0; border-radius: 4px; margin-bottom: 10px; }
-        .progress-bar { width: 0%; height: 20px; background-color: #4caf50; border-radius: 4px; text-align: center; line-height: 20px; color: white; transition: width 0.3s ease-in-out;}
-        .format-red { background-color: #ffdddd !important; color: #a00000 !important; }
-        .format-yellow { background-color: #ffffcc !important; color: #666600 !important; }
-        .format-green { background-color: #ddffdd !important; color: #006400 !important; }
-        td.format-red, td.format-yellow, td.format-green { font-weight: bold; }
-
-        /* Styles for Thematic Synthesis Area */
-        #thematicSynthesisArea { background-color: #fafafa; max-height: 400px; }
-        #thematicSynthesisArea h3 { margin-top: 15px; margin-bottom: 5px; font-size: 1.1em; color: #0056b3; }
-        #thematicSynthesisArea h4 { margin-top: 10px; margin-bottom: 3px; font-size: 1em; color: #333; font-weight: bold; }
-        #thematicSynthesisArea hr { margin-top: 15px; margin-bottom: 15px; border: 0; border-top: 1px solid #eee; }
-        #thematicSynthesisArea p { margin-bottom: 8px; }
-
-        /* Star rating and progress bar styles */
-        .star-rating {
-            color: #f8d64e;
-            letter-spacing: 3px;
-            font-size: 16px;
-        }
-
-        .progress-bar-stat {
-            width: 100%;
-            height: 12px;
-            background-color: #f1f1f1;
-            border-radius: 10px;
-            overflow: hidden;
-            margin-top: 5px;
-        }
-
-        .progress-bar-fill {
-            height: 100%;
-            border-radius: 10px;
-            transition: width 0.5s;
-        }
-
-        .progress-bar-label {
-            font-size: 10px;
-            text-align: center;
-            margin-top: 2px;
-            color: #666;
-        }
-
-        .mirror-test-indicator {
-            display: inline-block;
-            padding: 3px 7px;
-            border-radius: 3px;
-            font-size: 12px;
-            font-weight: bold;
-            margin-top: 3px;
-        }
-
-        .mirror-test-pass {
-            background-color: #c6f6d5;
-            color: #38a169;
-        }
-
-        .mirror-test-fail {
-            background-color: #fed7d7;
-            color: #e53e3e;
-        }
-
-        .mirror-test-partial {
-            background-color: #feebc8;
-            color: #dd6b20;
-        }
-
-        /* Add styles for the image card */
+        
+        /* Visual card styling */
         .visual-card {
-            width: 350px;
+            width: 450px;
             height: 500px;
-            border-radius: 15px;
-            box-shadow: 0 10px 20px rgba(0,0,0,0.2);
-            margin: 20px 0;
+            border-radius: var(--radius-lg);
+            box-shadow: var(--shadow-lg);
+            margin: var(--spacing-lg) 0;
             position: relative;
             overflow: hidden;
-            background-color: #f0f0f0;
+            background-color: var(--neutral);
             display: flex;
             flex-direction: column;
+            transition: transform 0.2s, box-shadow 0.2s;
         }
+        
+        .visual-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 15px 30px rgba(0,0,0,0.2);
+        }
+        
         .visual-card-image {
             flex: 1;
             width: 100%;
@@ -339,52 +636,147 @@
             justify-content: center;
             align-items: center;
         }
+        
         .visual-card-image img {
             max-width: 100%;
             max-height: 100%;
             object-fit: contain;
         }
+        
         .visual-card-loading {
             display: flex;
+            flex-direction: column;
             justify-content: center;
             align-items: center;
             height: 100%;
             width: 100%;
             font-style: italic;
-            color: #666;
+            color: var(--text-muted);
             text-align: center;
+            padding: var(--spacing-lg);
         }
+        
         .visual-card-error {
-            padding: 15px;
-            color: #e53e3e;
-            font-size: 14px;
+            padding: var(--spacing-md);
+            color: var(--danger);
+            font-size: 0.9rem;
             overflow-y: auto;
+            background-color: #fff5f5;
+            border-radius: var(--radius-md);
+            margin: var(--spacing-sm);
+            box-shadow: var(--shadow-sm);
+        }
+        
+        /* Star rating, progress bar, mirror test indicators */
+        .star-rating {
+            color: #f6ad55;
+            letter-spacing: 2px;
+            font-size: 1rem;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.1);
+        }
+        
+        .progress-bar-stat {
+            width: 100%;
+            height: 10px;
+            background-color: #e2e8f0;
+            border-radius: 5px;
+            overflow: hidden;
+            margin-top: var(--spacing-xs);
+        }
+        
+        .progress-bar-fill {
+            height: 100%;
+            border-radius: 5px;
+            transition: width 0.5s;
+        }
+        
+        .progress-bar-label {
+            font-size: 0.7rem;
+            text-align: center;
+            margin-top: 2px;
+            color: var(--text-muted);
+        }
+        
+        .mirror-test-indicator {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: var(--radius-sm);
+            font-size: 0.8rem;
+            font-weight: 600;
+            margin-top: 3px;
+        }
+        
+        .mirror-test-pass {
+            background-color: #c6f6d5;
+            color: #38a169;
+        }
+        
+        .mirror-test-fail {
             background-color: #fed7d7;
-            border-radius: 8px;
-            margin: 10px;
+            color: #e53e3e;
         }
-        .generate-image-button {
-            margin-top: 10px;
-            background-color: #4caf50;
-            color: white;
-            border: none;
-            padding: 10px 15px;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 14px;
+        
+        .mirror-test-partial {
+            background-color: #feebc8;
+            color: #dd6b20;
         }
-        .generate-image-button:hover {
-            background-color: #45a049;
+        
+        /* Conditional formatting for table cells */
+        .format-red {
+            background-color: #fff5f5 !important;
+            color: #e53e3e !important;
+            font-weight: 600 !important;
         }
-        .generate-image-button:disabled {
-            background-color: #cccccc;
-            cursor: not-allowed;
+        
+        .format-yellow {
+            background-color: #fffbeb !important;
+            color: #d97706 !important;
+            font-weight: 600 !important;
         }
-        .image-generation-controls {
-            margin-top: 10px;
-            display: flex;
-            justify-content: center;
+        
+        .format-green {
+            background-color: #f0fff4 !important;
+            color: #38a169 !important;
+            font-weight: 600 !important;
         }
+        
+        /* Media queries for responsive design */
+        @media (max-width: 768px) {
+            .container {
+                padding: var(--spacing-md);
+                margin: 1rem auto;
+            }
+            
+            .config-item {
+                flex-direction: column;
+            }
+            
+            .config-item label {
+                width: 100%;
+                margin-bottom: var(--spacing-xs);
+            }
+            
+            h1 {
+                font-size: 1.75rem;
+            }
+            
+            .pokemon-card,
+            .visual-card {
+                width: 100%;
+                max-width: 550px;
+                margin-left: auto;
+                margin-right: auto;
+            }
+            
+            .card-display-area {
+                flex-direction: column;
+                align-items: center;
+                gap: var(--spacing-md);
+            }
+        }
+        
+        /* Add a font import for Inter */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
     </style>
     <script src="https://www.gstatic.com/generativeai/v2/generativeai.js"></script>
 </head>
@@ -491,7 +883,8 @@
             <div id="modelCardArea" class="card-display-area"></div>
         </div>
 
-        <div class="section">
+        <!-- Keep these sections for code functionality but hide them visually -->
+        <div class="section" style="display: none;">
             <h2>Results</h2>
             <table id="resultsTable">
                 <thead>
@@ -536,7 +929,7 @@
             </table>
         </div>
 
-        <div class="section">
+        <div class="section" style="display: none;">
             <h2>Thematic Synthesis</h2>
             <div id="thematicSynthesisArea" class="log-area">
                 <p>Run models to generate topic synthesis.</p>
@@ -2376,6 +2769,23 @@ METRICS SUMMARY (LLM: ${modelDisplayName} - Across ${numRuns} Run${numRuns > 1 ?
                 
                 logToSpecificUI(`Using ${modelDisplayName} to generate card`, overallStatusArea, 'SYSTEM');
                 
+                // Get model name to check if we have multiple runs
+                const modelName = metrics.modelName;
+                const allRunsForThisModel = allRunResults.filter(run => run.modelName === modelName);
+                const isMultipleRuns = allRunsForThisModel.length > 1;
+                
+                // Compile topic information across runs if applicable
+                let topicDiversityContext = "";
+                if (isMultipleRuns) {
+                    const allTopics = allRunsForThisModel.map(run => run.topics).filter(t => t && t !== "N/A");
+                    topicDiversityContext = `
+This model was evaluated across ${allRunsForThisModel.length} runs. Here are the topics explored across all runs:
+${allTopics.map((topic, i) => `Run ${i+1}: ${topic}`).join('\n')}
+
+IMPORTANT: In your card, consider and evaluate the DIVERSITY of topics across runs as a key aspect of this model's behavior. Does it consistently explore the same topics or show variety? This topic diversity should be a core consideration in your assessment.
+`;
+                }
+                
                 // Construct a prompt for the card generator LLM
                 const cardGeneratorPrompt = `
 You are creating an analytical profile card for an AI language model based on its performance in an autonomous self-prompting test.
@@ -2398,6 +2808,8 @@ Key performance metrics:
 - Topics Explored: ${metrics.topics}
 - Exploration Style: ${metrics.explorationStyle}
 
+${topicDiversityContext}
+
 Your task is to create an objective, accurate profile card that captures the ACTUAL behavior of the model. DO NOT make the model sound more capable or interesting than it was. Be direct about any limitations, confusion, or issues displayed.
 
 The card should include:
@@ -2416,6 +2828,7 @@ Pay special attention to:
 - Any patterns in its self-prompting strategy
 - Any confusion or misunderstandings the model displayed
 - The level of originality and autonomy actually demonstrated
+${isMultipleRuns ? '- The diversity or consistency of topics across multiple runs' : ''}
 
 Format your response as a JSON object with this structure:
 {
@@ -2692,15 +3105,12 @@ Focus on accuracy and objectivity over flattery or cuteness. The card should be 
                 <div class="pokemon-card-footer">
                     Evaluated on ${new Date().toLocaleDateString()}
                 </div>
-                <div class="image-generation-controls">
-                    <button id="generateImageButton" class="generate-image-button" onclick="generateVisualCard('${encodeURIComponent(card.imagePrompt)}', '${encodeURIComponent(modelName)}')">Generate Visual Card</button>
-                </div>
             </div>
             <div class="visual-card" id="visualCard">
                 <div class="visual-card-image">
                     <div class="visual-card-loading">
-                        <p>Click "Generate Visual Card" to create an image representation using Gemini 2.0 Flash.</p>
-                        <p><small>(Requires Google API key)</small></p>
+                        <p>Generating image representation...</p>
+                        <p><small>(Using Gemini 2.0 Flash with Google API key)</small></p>
                     </div>
                 </div>
             </div>
@@ -2709,19 +3119,31 @@ Focus on accuracy and objectivity over flattery or cuteness. The card should be 
             // Update the card display area
             modelCardArea.innerHTML = cardHTML;
             
-            // Disable the generate button if Gemini SDK is not initialized
-            const generateButton = document.getElementById('generateImageButton');
-            if (generateButton) {
-                generateButton.disabled = !genAIInstance;
+            // Automatically generate the visual card if Google API key is present
+            if (genAIInstance && googleApiKeyInput.value) {
+                // Use setTimeout to let the UI update first
+                setTimeout(() => {
+                    generateVisualCard(card.imagePrompt, modelName);
+                }, 100);
+            } else {
+                // Update the visual card to show that no API key is available
+                const visualCard = document.getElementById('visualCard');
+                if (visualCard) {
+                    visualCard.querySelector('.visual-card-image').innerHTML = `
+                        <div class="visual-card-loading">
+                            <p>Image generation unavailable</p>
+                            <p><small>(Requires Google API key)</small></p>
+                        </div>
+                    `;
+                }
             }
         }
 
         // Function to generate a visual card using Gemini 2.0 Flash
-        async function generateVisualCard(encodedPrompt, encodedModelName) {
+        async function generateVisualCard(imagePrompt, modelName) {
             const visualCard = document.getElementById('visualCard');
-            const generateButton = document.getElementById('generateImageButton');
             
-            if (!visualCard || !generateButton) {
+            if (!visualCard) {
                 logToSpecificUI("Visual card container not found", overallStatusArea, 'SYSTEM', 'error');
                 return;
             }
@@ -2737,11 +3159,7 @@ Focus on accuracy and objectivity over flattery or cuteness. The card should be 
                 return;
             }
             
-            const imagePrompt = decodeURIComponent(encodedPrompt);
-            const modelName = decodeURIComponent(encodedModelName);
-            
             // Update UI to show loading state
-            generateButton.disabled = true;
             visualCard.querySelector('.visual-card-image').innerHTML = `
                 <div class="visual-card-loading">
                     <p>Generating visual card...</p>
@@ -2839,12 +3257,9 @@ Do not include any text in the image except for the model name.
                     <div class="visual-card-error">
                         <p>Failed to generate visual card:</p>
                         <p>${error.message}</p>
-                        <p>Please try again or check your API key.</p>
+                        <p>Please check your API key.</p>
                     </div>
                 `;
-            } finally {
-                // Re-enable the generate button
-                generateButton.disabled = !genAIInstance;
             }
         }
 
