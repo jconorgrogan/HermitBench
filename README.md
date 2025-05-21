@@ -5,6 +5,9 @@ Tracking what happens when LLMs are all alone with nobody to speak to
 
 Example card (Guess the LLM!) 
 <img width="482" alt="image" src="https://github.com/user-attachments/assets/53069347-d322-4c6f-a4c1-e38937f9e0b1" />
+Heres 4.1 (obviously)
+<img width="536" alt="image" src="https://github.com/user-attachments/assets/5d97b2db-2fd8-458d-8cad-c634fb420a63" />
+
 
 
 
